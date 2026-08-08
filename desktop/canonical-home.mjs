@@ -81,6 +81,7 @@ function openZip(buffer) {
   if (count > MAX_ENTRIES || centralOffset + centralSize > bytes.length) throw new Error("Private art ZIP central directory is invalid.");
 
   const entries = new Map();
+  const suffixEntries = new Map();
   let cursor = centralOffset;
   for (let index = 0; index < count; index += 1) {
     if (cursor + 46 > bytes.length || bytes.readUInt32LE(cursor) !== CENTRAL) throw new Error("Private art ZIP central directory is malformed.");
@@ -103,27 +104,46 @@ function openZip(buffer) {
       if (!normalized) throw new Error(`Unsafe private art ZIP path: ${rawName}`);
       const key = normalized.toLocaleLowerCase("en-US");
       if (entries.has(key)) throw new Error(`Private art ZIP has a normalized path collision: ${normalized}`);
-      entries.set(key, { normalized, method, compressedSize, uncompressedSize, localOffset });
+      const record = { normalized, method, compressedSize, uncompressedSize, localOffset };
+      entries.set(key, record);
+
+      // Match the original PocketBuddy+ TinyHouse picker: licensed ZIPs may be
+      // wrapped in one or more parent folders. Index every safe path suffix so
+      // `Floor_Wall_Tiles_128/...` resolves inside
+      // `TinyHouse_0.17(@Pixel_Salvaje)/Floor_Wall_Tiles_128/...`.
+      // Never use macOS metadata and never guess between ambiguous duplicates.
+      if (!key.startsWith("__macosx/")) {
+        const segments = normalized.split("/");
+        for (let start = 0; start < segments.length; start += 1) {
+          const suffixKey = segments.slice(start).join("/").toLocaleLowerCase("en-US");
+          if (!suffixEntries.has(suffixKey)) suffixEntries.set(suffixKey, record);
+          else if (suffixEntries.get(suffixKey) !== record) suffixEntries.set(suffixKey, null);
+        }
+      }
     }
     cursor = end;
   }
 
   function read(path) {
     const normalized = normalizeArchivePath(path);
-    const entry = normalized ? entries.get(normalized.toLocaleLowerCase("en-US")) : null;
+    const key = normalized ? normalized.toLocaleLowerCase("en-US") : "";
+    const exact = key ? entries.get(key) : null;
+    const suffix = key ? suffixEntries.get(key) : undefined;
+    if (!exact && suffix === null) throw new Error(`Private art ZIP path is ambiguous: ${normalized}`);
+    const entry = exact ?? suffix ?? null;
     if (!entry) return null;
     const offset = entry.localOffset;
-    if (offset + 30 > bytes.length || bytes.readUInt32LE(offset) !== LOCAL) throw new Error(`Private art ZIP local header is malformed: ${normalized}`);
+    if (offset + 30 > bytes.length || bytes.readUInt32LE(offset) !== LOCAL) throw new Error(`Private art ZIP local header is malformed: ${entry.normalized}`);
     const localMethod = bytes.readUInt16LE(offset + 8);
     const nameLength = bytes.readUInt16LE(offset + 26);
     const extraLength = bytes.readUInt16LE(offset + 28);
-    if (localMethod !== entry.method) throw new Error(`Private art ZIP local header disagrees: ${normalized}`);
+    if (localMethod !== entry.method) throw new Error(`Private art ZIP local header disagrees: ${entry.normalized}`);
     const start = offset + 30 + nameLength + extraLength;
     const end = start + entry.compressedSize;
-    if (end > bytes.length) throw new Error(`Private art ZIP payload is truncated: ${normalized}`);
+    if (end > bytes.length) throw new Error(`Private art ZIP payload is truncated: ${entry.normalized}`);
     const compressed = bytes.subarray(start, end);
     const result = entry.method === 0 ? Buffer.from(compressed) : inflateRawSync(compressed);
-    if (result.length !== entry.uncompressedSize) throw new Error(`Private art ZIP size mismatch: ${normalized}`);
+    if (result.length !== entry.uncompressedSize) throw new Error(`Private art ZIP size mismatch: ${entry.normalized}`);
     return result;
   }
 
