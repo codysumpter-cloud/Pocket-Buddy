@@ -51,8 +51,13 @@ test("canonical Home server feeds the verified TinyHouse ZIP into the donor load
   assert.match(canonicalHome, /Home will not substitute fake art/);
   assert.match(canonicalHome, /part\.trim\(\)/);
   assert.match(canonicalHome, /inflateRawSync/);
+  assert.match(canonicalHome, /suffixEntries/);
+  assert.match(canonicalHome, /segments\.slice\(start\)\.join/);
+  assert.match(canonicalHome, /__macosx\//);
+  assert.match(canonicalHome, /Private art ZIP path is ambiguous/);
   assert.match(donorLocalAssets, /new URLSearchParams\(location\.search\)\.get\("pack"\)/);
   assert.match(donorLocalAssets, /attachFromBaseUrl/);
+  assert.match(donorLocalAssets, /buildSuffixIndex/);
 });
 
 test("Ani and Buddy actors use donor world coordinates, wall traversal, and native PixelLab frames", () => {
