@@ -39,6 +39,7 @@ jobs:
           node --check desktop/canonical-home.mjs
           node --check desktop/home-preload.cjs
           node --check desktop/pocket-buddy-home-actors.js
+          node --check desktop/tinyhouse-home/actor-motion-core.js
           node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
           node --check desktop/tinyhouse-home/app.js
           node --check desktop/tinyhouse-home/house-grid-core.js
@@ -80,6 +81,7 @@ jobs:
           node --check desktop/canonical-home.mjs
           node --check desktop/home-preload.cjs
           node --check desktop/pocket-buddy-home-actors.js
+          node --check desktop/tinyhouse-home/actor-motion-core.js
           node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
           node --check desktop/tinyhouse-home/app.js
           node --check desktop/tinyhouse-home/house-grid-core.js

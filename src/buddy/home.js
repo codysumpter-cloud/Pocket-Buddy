@@ -17,6 +17,22 @@ export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose 
   let openState = false;
   let lastError = "";
   let webShell = null;
+  let webEscapeHandler = null;
+
+  function setHomePresence(active) {
+    petRuntime.setHomeActive?.(Boolean(active));
+  }
+
+  function finishClose() {
+    closeWebHome();
+    const wasOpen = openState;
+    openState = false;
+    setHomePresence(false);
+    if (wasOpen) onClose();
+  }
+
+  const removeDesktopClosedListener = window.PocketBuddyDesktop?.onHomeClosed?.(() => finishClose()) ?? (() => {});
+  void removeDesktopClosedListener;
 
   function showError(message) {
     lastError = String(message || "Home could not open.");
@@ -45,6 +61,8 @@ export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose 
   }
 
   function closeWebHome() {
+    if (webEscapeHandler) window.removeEventListener("keydown", webEscapeHandler, true);
+    webEscapeHandler = null;
     webShell?.remove();
     webShell = null;
   }
@@ -55,26 +73,41 @@ export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose 
 
     const shell = document.createElement("div");
     shell.className = "pb-web-home-shell";
-    shell.style.cssText = "position:fixed;inset:8px;z-index:2147483646;background:#0e0f13;border:3px solid var(--birb-border-color);box-shadow:6px 6px 0 var(--birb-border-color);pointer-events:auto;overflow:hidden;";
+    shell.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:#0e0f13;pointer-events:auto;overflow:hidden;isolation:isolate;";
 
     const frame = document.createElement("iframe");
     frame.className = "pb-web-home-frame";
     frame.title = "Pocket Buddy Home";
     frame.src = url;
     frame.allow = "clipboard-write";
-    frame.style.cssText = "display:block;width:100%;height:100%;border:0;background:#0e0f13;";
+    frame.style.cssText = "position:absolute;inset:0;display:block;width:100%;height:100%;border:0;background:#0e0f13;z-index:1;";
 
     const closeButton = document.createElement("button");
     closeButton.type = "button";
-    closeButton.textContent = "LEAVE HOME";
+    closeButton.textContent = "← LEAVE HOME";
     closeButton.setAttribute("aria-label", "Leave Pocket Buddy Home");
-    closeButton.style.cssText = "position:absolute;right:10px;top:10px;z-index:5;font:10px Monocraft,monospace;border:2px solid var(--birb-border-color);background:var(--birb-background-color);color:#2d2634;padding:6px 8px;box-shadow:3px 3px 0 var(--birb-border-color);";
+    closeButton.title = "Leave Home (Esc)";
+    closeButton.style.cssText = "position:absolute;right:12px;top:12px;z-index:2147483647;font:11px Monocraft,monospace;border:3px solid var(--birb-border-color);background:var(--birb-background-color);color:#2d2634;padding:8px 10px;box-shadow:4px 4px 0 var(--birb-border-color);cursor:pointer;pointer-events:auto;";
     closeButton.onclick = () => close();
 
-    shell.append(frame, closeButton);
+    const escapeHint = document.createElement("div");
+    escapeHint.textContent = "ESC";
+    escapeHint.setAttribute("aria-hidden", "true");
+    escapeHint.style.cssText = "position:absolute;right:132px;top:16px;z-index:2147483647;font:9px Monocraft,monospace;background:rgba(14,15,19,.78);color:#fff;padding:5px 6px;border:1px solid rgba(255,255,255,.55);pointer-events:none;";
+
+    webEscapeHandler = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    };
+    window.addEventListener("keydown", webEscapeHandler, true);
+
+    shell.append(frame, closeButton, escapeHint);
     shadowRoot.append(shell);
     webShell = shell;
     openState = true;
+    setHomePresence(true);
     lastError = "";
     shadowRoot.querySelector(".pb-home-launch-error")?.remove();
 
@@ -109,6 +142,7 @@ export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose 
         });
         if (!result?.ok) throw new Error(result?.error || "Canonical Home did not open.");
         openState = true;
+        setHomePresence(true);
         lastError = "";
         shadowRoot?.querySelector(".pb-home-launch-error")?.remove();
         return result;
@@ -120,6 +154,7 @@ export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose 
       throw new Error("This host has not configured the canonical Pocket Buddy Home runtime. No substitute room will be rendered.");
     } catch (error) {
       openState = false;
+      setHomePresence(false);
       showError(error instanceof Error ? error.message : String(error));
       console.error("Pocket Buddy canonical Home failed to open", error);
       return { ok: false, error: lastError };
@@ -128,9 +163,7 @@ export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose 
 
   function close() {
     window.PocketBuddyDesktop?.closeHome?.();
-    closeWebHome();
-    openState = false;
-    onClose();
+    finishClose();
   }
 
   return {

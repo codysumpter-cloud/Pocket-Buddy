@@ -32,6 +32,12 @@ jobs:
           node --check src/buddy/theme.js
           node --check src/buddy/layer.js
           node --check src/platforms/obsidian/wrapper.js
+          node --check desktop/main.mjs
+          node --check desktop/preload.cjs
+          node --check desktop/home-preload.cjs
+          node --check desktop/canonical-home.mjs
+          node --check desktop/pocket-buddy-home-actors.js
+          node --check desktop/tinyhouse-home/actor-motion-core.js
           node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
           node --check scripts/postprocess-build.mjs
       - name: Build every Pocket Buddy delivery format

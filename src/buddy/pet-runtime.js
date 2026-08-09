@@ -48,6 +48,7 @@ export function createPetRuntime(library, shadowRoot) {
   let heartUntil = 0;
   let petHoverTimes = [];
   let rootListenersInstalled = false;
+  let homeActive = false;
 
   async function imageFor(runtime, path, mime = "image/png") {
     const key = `${runtime.pack.id}:${path}`;
@@ -87,14 +88,33 @@ export function createPetRuntime(library, shadowRoot) {
     return cssNumber(shadowRoot, "--birb-ui-scale", 1);
   }
 
+  function syncPresence() {
+    if (!base) return;
+    base.style.pointerEvents = homeActive ? "none" : "";
+    if (homeActive) {
+      base.style.opacity = "0";
+      if (overlay) overlay.style.display = "none";
+      if (heart) heart.style.display = "none";
+      return;
+    }
+    if (active) {
+      base.style.opacity = "0";
+      if (overlay) overlay.style.display = "block";
+    } else {
+      base.style.opacity = "";
+      if (overlay) overlay.style.display = "none";
+    }
+  }
+
   function ensureOverlay() {
     if (overlay) return;
     overlay = document.createElement("canvas");
     overlay.id = "pocket-buddy-custom-pet";
     overlay.style.cssText = "position:fixed;left:0;top:0;z-index:2147483638;pointer-events:none;image-rendering:pixelated;transform-origin:bottom center;";
     overlayCtx = overlay.getContext("2d");
-    overlayCtx.imageSmoothingEnabled = false;
+    if (overlayCtx) overlayCtx.imageSmoothingEnabled = false;
     shadowRoot.appendChild(overlay);
+    syncPresence();
   }
 
   function ensureHeart() {
@@ -126,7 +146,7 @@ export function createPetRuntime(library, shadowRoot) {
   }
 
   function showHeart(durationMs = HEART_DURATION_MS) {
-    if (!active) return;
+    if (!active || homeActive) return;
     const element = ensureHeart();
     heartUntil = performance.now() + Math.max(500, durationMs);
     element.classList.remove("pb-heart-pop");
@@ -136,7 +156,7 @@ export function createPetRuntime(library, shadowRoot) {
   }
 
   function placeHeart() {
-    if (!heart || !base || !active) return;
+    if (homeActive || !heart || !base || !active) return;
     if (performance.now() >= heartUntil) {
       heart.classList.remove("pb-heart-pop");
       heart.style.display = "none";
@@ -156,20 +176,17 @@ export function createPetRuntime(library, shadowRoot) {
     lastCenter = null;
     if (id === "pocket-bird" || !id) {
       active = null;
-      if (base) base.style.opacity = "";
-      if (overlay) overlay.style.display = "none";
       if (heart) heart.style.display = "none";
+      syncPresence();
       return;
     }
     active = await library.loadRuntime(id);
     if (!active) {
-      if (base) base.style.opacity = "";
-      if (overlay) overlay.style.display = "none";
+      syncPresence();
       return;
     }
     ensureOverlay();
-    overlay.style.display = "block";
-    if (base) base.style.opacity = "0";
+    syncPresence();
     if (active.pack.source === "openpets") void imageFor(active, active.pack.sheetPath, "image/webp");
   }
 
@@ -231,7 +248,7 @@ export function createPetRuntime(library, shadowRoot) {
   }
 
   function drawOverlay(now) {
-    if (!active || !base || !overlay || !overlayCtx) return;
+    if (homeActive || !active || !base || !overlay || !overlayCtx) return;
     const rect = base.getBoundingClientRect();
     const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     if (lastCenter) {
@@ -258,7 +275,7 @@ export function createPetRuntime(library, shadowRoot) {
     overlay.style.left = `${Math.round(rect.left + rect.width / 2 - width / 2)}px`;
     overlay.style.top = `${Math.round(rect.bottom - height)}px`;
     requestFrame(active, semantic, lastDirection, now, (frame) => {
-      if (!active || !overlayCtx) return;
+      if (homeActive || !active || !overlayCtx) return;
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
       overlayCtx.drawImage(frame.image, frame.sx, frame.sy, frame.sw, frame.sh, 0, 0, overlay.width, overlay.height);
     });
@@ -292,7 +309,7 @@ export function createPetRuntime(library, shadowRoot) {
   function baseMouseOver() {
     const now = Date.now();
     petHoverTimes = [...petHoverTimes.filter((time) => now - time < 1000), now].slice(-10);
-    if (active && petHoverTimes.length >= 3) {
+    if (active && !homeActive && petHoverTimes.length >= 3) {
       showHeart();
       petHoverTimes = [];
     }
@@ -311,6 +328,7 @@ export function createPetRuntime(library, shadowRoot) {
     if (!base) return false;
     installRootListeners();
     await select(await library.activeId());
+    syncPresence();
     if (!raf) raf = requestAnimationFrame(loop);
     return true;
   }
@@ -367,6 +385,11 @@ export function createPetRuntime(library, shadowRoot) {
     async runtimeFor(id) { return id ? library.loadRuntime(id) : null; },
     scaleMultiplier,
     uiScaleMultiplier,
+    setHomeActive(value) {
+      homeActive = Boolean(value);
+      syncPresence();
+    },
+    isHomeActive() { return homeActive; },
     drawRuntime,
     drawActive(ctx, semantic, direction, now, x, y, scale = 1) {
       drawRuntime(active, ctx, semantic, direction, now, x, y, scale);
@@ -374,7 +397,10 @@ export function createPetRuntime(library, shadowRoot) {
     stop() {
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
-      if (base) base.style.opacity = "";
+      if (base) {
+        base.style.opacity = "";
+        base.style.pointerEvents = "";
+      }
       shadowRoot.removeEventListener("click", rootClick, true);
       base?.removeEventListener("mouseover", baseMouseOver);
       rootListenersInstalled = false;

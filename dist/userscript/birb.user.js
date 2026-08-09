@@ -5008,6 +5008,7 @@
 	  let heartUntil = 0;
 	  let petHoverTimes = [];
 	  let rootListenersInstalled = false;
+	  let homeActive = false;
 
 	  async function imageFor(runtime, path, mime = "image/png") {
 	    const key = `${runtime.pack.id}:${path}`;
@@ -5047,14 +5048,33 @@
 	    return cssNumber(shadowRoot, "--birb-ui-scale", 1);
 	  }
 
+	  function syncPresence() {
+	    if (!base) return;
+	    base.style.pointerEvents = homeActive ? "none" : "";
+	    if (homeActive) {
+	      base.style.opacity = "0";
+	      if (overlay) overlay.style.display = "none";
+	      if (heart) heart.style.display = "none";
+	      return;
+	    }
+	    if (active) {
+	      base.style.opacity = "0";
+	      if (overlay) overlay.style.display = "block";
+	    } else {
+	      base.style.opacity = "";
+	      if (overlay) overlay.style.display = "none";
+	    }
+	  }
+
 	  function ensureOverlay() {
 	    if (overlay) return;
 	    overlay = document.createElement("canvas");
 	    overlay.id = "pocket-buddy-custom-pet";
 	    overlay.style.cssText = "position:fixed;left:0;top:0;z-index:2147483638;pointer-events:none;image-rendering:pixelated;transform-origin:bottom center;";
 	    overlayCtx = overlay.getContext("2d");
-	    overlayCtx.imageSmoothingEnabled = false;
+	    if (overlayCtx) overlayCtx.imageSmoothingEnabled = false;
 	    shadowRoot.appendChild(overlay);
+	    syncPresence();
 	  }
 
 	  function ensureHeart() {
@@ -5086,7 +5106,7 @@
 	  }
 
 	  function showHeart(durationMs = HEART_DURATION_MS) {
-	    if (!active) return;
+	    if (!active || homeActive) return;
 	    const element = ensureHeart();
 	    heartUntil = performance.now() + Math.max(500, durationMs);
 	    element.classList.remove("pb-heart-pop");
@@ -5096,7 +5116,7 @@
 	  }
 
 	  function placeHeart() {
-	    if (!heart || !base || !active) return;
+	    if (homeActive || !heart || !base || !active) return;
 	    if (performance.now() >= heartUntil) {
 	      heart.classList.remove("pb-heart-pop");
 	      heart.style.display = "none";
@@ -5116,20 +5136,17 @@
 	    lastCenter = null;
 	    if (id === "pocket-bird" || !id) {
 	      active = null;
-	      if (base) base.style.opacity = "";
-	      if (overlay) overlay.style.display = "none";
 	      if (heart) heart.style.display = "none";
+	      syncPresence();
 	      return;
 	    }
 	    active = await library.loadRuntime(id);
 	    if (!active) {
-	      if (base) base.style.opacity = "";
-	      if (overlay) overlay.style.display = "none";
+	      syncPresence();
 	      return;
 	    }
 	    ensureOverlay();
-	    overlay.style.display = "block";
-	    if (base) base.style.opacity = "0";
+	    syncPresence();
 	    if (active.pack.source === "openpets") void imageFor(active, active.pack.sheetPath, "image/webp");
 	  }
 
@@ -5191,7 +5208,7 @@
 	  }
 
 	  function drawOverlay(now) {
-	    if (!active || !base || !overlay || !overlayCtx) return;
+	    if (homeActive || !active || !base || !overlay || !overlayCtx) return;
 	    const rect = base.getBoundingClientRect();
 	    const center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 	    if (lastCenter) {
@@ -5218,7 +5235,7 @@
 	    overlay.style.left = `${Math.round(rect.left + rect.width / 2 - width / 2)}px`;
 	    overlay.style.top = `${Math.round(rect.bottom - height)}px`;
 	    requestFrame(active, semantic, lastDirection, now, (frame) => {
-	      if (!active || !overlayCtx) return;
+	      if (homeActive || !active || !overlayCtx) return;
 	      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
 	      overlayCtx.drawImage(frame.image, frame.sx, frame.sy, frame.sw, frame.sh, 0, 0, overlay.width, overlay.height);
 	    });
@@ -5252,7 +5269,7 @@
 	  function baseMouseOver() {
 	    const now = Date.now();
 	    petHoverTimes = [...petHoverTimes.filter((time) => now - time < 1000), now].slice(-10);
-	    if (active && petHoverTimes.length >= 3) {
+	    if (active && !homeActive && petHoverTimes.length >= 3) {
 	      showHeart();
 	      petHoverTimes = [];
 	    }
@@ -5271,6 +5288,7 @@
 	    if (!base) return false;
 	    installRootListeners();
 	    await select(await library.activeId());
+	    syncPresence();
 	    if (!raf) raf = requestAnimationFrame(loop);
 	    return true;
 	  }
@@ -5327,6 +5345,11 @@
 	    async runtimeFor(id) { return id ? library.loadRuntime(id) : null; },
 	    scaleMultiplier,
 	    uiScaleMultiplier,
+	    setHomeActive(value) {
+	      homeActive = Boolean(value);
+	      syncPresence();
+	    },
+	    isHomeActive() { return homeActive; },
 	    drawRuntime,
 	    drawActive(ctx, semantic, direction, now, x, y, scale = 1) {
 	      drawRuntime(active, ctx, semantic, direction, now, x, y, scale);
@@ -5334,7 +5357,10 @@
 	    stop() {
 	      if (raf) cancelAnimationFrame(raf);
 	      raf = 0;
-	      if (base) base.style.opacity = "";
+	      if (base) {
+	        base.style.opacity = "";
+	        base.style.pointerEvents = "";
+	      }
 	      shadowRoot.removeEventListener("click", rootClick, true);
 	      base?.removeEventListener("mouseover", baseMouseOver);
 	      rootListenersInstalled = false;
@@ -5366,6 +5392,21 @@
 	  let openState = false;
 	  let lastError = "";
 	  let webShell = null;
+	  let webEscapeHandler = null;
+
+	  function setHomePresence(active) {
+	    petRuntime.setHomeActive?.(Boolean(active));
+	  }
+
+	  function finishClose() {
+	    closeWebHome();
+	    const wasOpen = openState;
+	    openState = false;
+	    setHomePresence(false);
+	    if (wasOpen) onClose();
+	  }
+
+	  window.PocketBuddyDesktop?.onHomeClosed?.(() => finishClose()) ?? (() => {});
 
 	  function showError(message) {
 	    lastError = String(message || "Home could not open.");
@@ -5394,6 +5435,8 @@
 	  }
 
 	  function closeWebHome() {
+	    if (webEscapeHandler) window.removeEventListener("keydown", webEscapeHandler, true);
+	    webEscapeHandler = null;
 	    webShell?.remove();
 	    webShell = null;
 	  }
@@ -5404,26 +5447,41 @@
 
 	    const shell = document.createElement("div");
 	    shell.className = "pb-web-home-shell";
-	    shell.style.cssText = "position:fixed;inset:8px;z-index:2147483646;background:#0e0f13;border:3px solid var(--birb-border-color);box-shadow:6px 6px 0 var(--birb-border-color);pointer-events:auto;overflow:hidden;";
+	    shell.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:#0e0f13;pointer-events:auto;overflow:hidden;isolation:isolate;";
 
 	    const frame = document.createElement("iframe");
 	    frame.className = "pb-web-home-frame";
 	    frame.title = "Pocket Buddy Home";
 	    frame.src = url;
 	    frame.allow = "clipboard-write";
-	    frame.style.cssText = "display:block;width:100%;height:100%;border:0;background:#0e0f13;";
+	    frame.style.cssText = "position:absolute;inset:0;display:block;width:100%;height:100%;border:0;background:#0e0f13;z-index:1;";
 
 	    const closeButton = document.createElement("button");
 	    closeButton.type = "button";
-	    closeButton.textContent = "LEAVE HOME";
+	    closeButton.textContent = "← LEAVE HOME";
 	    closeButton.setAttribute("aria-label", "Leave Pocket Buddy Home");
-	    closeButton.style.cssText = "position:absolute;right:10px;top:10px;z-index:5;font:10px Monocraft,monospace;border:2px solid var(--birb-border-color);background:var(--birb-background-color);color:#2d2634;padding:6px 8px;box-shadow:3px 3px 0 var(--birb-border-color);";
+	    closeButton.title = "Leave Home (Esc)";
+	    closeButton.style.cssText = "position:absolute;right:12px;top:12px;z-index:2147483647;font:11px Monocraft,monospace;border:3px solid var(--birb-border-color);background:var(--birb-background-color);color:#2d2634;padding:8px 10px;box-shadow:4px 4px 0 var(--birb-border-color);cursor:pointer;pointer-events:auto;";
 	    closeButton.onclick = () => close();
 
-	    shell.append(frame, closeButton);
+	    const escapeHint = document.createElement("div");
+	    escapeHint.textContent = "ESC";
+	    escapeHint.setAttribute("aria-hidden", "true");
+	    escapeHint.style.cssText = "position:absolute;right:132px;top:16px;z-index:2147483647;font:9px Monocraft,monospace;background:rgba(14,15,19,.78);color:#fff;padding:5px 6px;border:1px solid rgba(255,255,255,.55);pointer-events:none;";
+
+	    webEscapeHandler = (event) => {
+	      if (event.key !== "Escape") return;
+	      event.preventDefault();
+	      event.stopPropagation();
+	      close();
+	    };
+	    window.addEventListener("keydown", webEscapeHandler, true);
+
+	    shell.append(frame, closeButton, escapeHint);
 	    shadowRoot.append(shell);
 	    webShell = shell;
 	    openState = true;
+	    setHomePresence(true);
 	    lastError = "";
 	    shadowRoot.querySelector(".pb-home-launch-error")?.remove();
 
@@ -5458,6 +5516,7 @@
 	        });
 	        if (!result?.ok) throw new Error(result?.error || "Canonical Home did not open.");
 	        openState = true;
+	        setHomePresence(true);
 	        lastError = "";
 	        shadowRoot?.querySelector(".pb-home-launch-error")?.remove();
 	        return result;
@@ -5469,6 +5528,7 @@
 	      throw new Error("This host has not configured the canonical Pocket Buddy Home runtime. No substitute room will be rendered.");
 	    } catch (error) {
 	      openState = false;
+	      setHomePresence(false);
 	      showError(error instanceof Error ? error.message : String(error));
 	      console.error("Pocket Buddy canonical Home failed to open", error);
 	      return { ok: false, error: lastError };
@@ -5477,9 +5537,7 @@
 
 	  function close() {
 	    window.PocketBuddyDesktop?.closeHome?.();
-	    closeWebHome();
-	    openState = false;
-	    onClose();
+	    finishClose();
 	  }
 
 	  return {

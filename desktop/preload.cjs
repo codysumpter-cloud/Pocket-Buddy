@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld("PocketBuddyDesktop", {
   closeHome() {
     ipcRenderer.send("pocket-buddy:close-home");
   },
+  onHomeClosed(callback) {
+    if (typeof callback !== "function") return () => {};
+    const handler = () => callback();
+    ipcRenderer.on("pocket-buddy:home-closed", handler);
+    return () => ipcRenderer.removeListener("pocket-buddy:home-closed", handler);
+  },
   onHomeCare(callback) {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, action) => callback(action);

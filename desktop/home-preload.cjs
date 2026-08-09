@@ -1,5 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+window.addEventListener("beforeunload", () => ipcRenderer.send("pocket-buddy:home-exiting"), { once: true });
+
 contextBridge.exposeInMainWorld("PocketBuddyHome", {
   care(action) {
     const value = String(action ?? "");
