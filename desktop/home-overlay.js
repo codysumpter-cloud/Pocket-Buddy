@@ -104,11 +104,72 @@
       button.dataset.open = "false";
     }
 
+    // Size is the base scale of the house; zoom moves the camera relative to
+    // it. Keeping them separate means zooming in no longer permanently
+    // changes how big the house sits on your desktop.
+    make("SIZE −", "Smaller house", () => nudgeSize(1 / 1.12));
+    make("SIZE +", "Bigger house", () => nudgeSize(1.12));
+
+    const follow = make("FOLLOW", "Keep the camera on your character", (self) => {
+      setFollow(!following);
+      self.dataset.open = following ? "true" : "false";
+    });
+    follow.dataset.open = "false";
+    follow.dataset.follow = "true";
+
+    make("CENTER", "Frame the whole house", () => {
+      setFollow(false);
+      centerHouse(readSize());
+    });
+
     make(overlay ? "WINDOWED" : "DESKTOP", "Switch how Home is displayed", () => {
       bridge?.setMode?.(overlay ? "window" : "desktop");
     }).dataset.role = "mode";
 
     shell.append(bar);
+  }
+
+  // --------------------------------------------------------------- camera
+
+  const SIZE_KEY = "pocket-buddy.home.sizeScale";
+  let following = false;
+  let followFrame = 0;
+
+  function readSize() {
+    const stored = Number(localStorage.getItem(SIZE_KEY));
+    return Number.isFinite(stored) && stored > 0 ? Math.min(3, Math.max(0.4, stored)) : 1;
+  }
+
+  function applySize(value) {
+    const camera = window.TinyHouseCamera;
+    if (!camera?.setScale) return;
+    localStorage.setItem(SIZE_KEY, String(value));
+    camera.setScale(value);
+  }
+
+  function nudgeSize(multiplier) {
+    const next = Math.min(3, Math.max(0.4, readSize() * multiplier));
+    localStorage.setItem(SIZE_KEY, String(next));
+    // Resize about the house rather than the old stage origin.
+    if (!centerHouse(next)) applySize(next);
+  }
+
+  /** Ride the camera on the player. Not a first-person view — the art is 8-way isometric. */
+  function followTick() {
+    followFrame = 0;
+    if (!following) return;
+    const point = window.PocketBuddyHomeView?.playerPoint?.();
+    const camera = window.TinyHouseCamera;
+    if (point && camera?.centerOn) camera.centerOn(point.x, point.y);
+    followFrame = requestAnimationFrame(followTick);
+  }
+
+  function setFollow(value) {
+    following = Boolean(value);
+    const button = document.querySelector('#pb-home-launcher button[data-follow]');
+    if (button) button.dataset.open = following ? "true" : "false";
+    if (following && !followFrame) followFrame = requestAnimationFrame(followTick);
+    if (!following && followFrame) { cancelAnimationFrame(followFrame); followFrame = 0; }
   }
 
   // -------------------------------------------------------- click-through
@@ -178,10 +239,50 @@
 
   // ----------------------------------------------------------------- boot
 
+  /**
+   * Overlay mode gives the page the whole screen while the stage keeps its
+   * original offset, so the house lands off to one side and zooming toward the
+   * viewport centre appears to shove it away. Frame it once the grid exists.
+   */
+  function houseCentre() {
+    const grid = window.TinyHouseStructure?.grid;
+    const core = window.TinyHouseGridCore;
+    const bounds = grid?.bounds?.();
+    if (!grid || !core?.cellCenter || !bounds) return null;
+    return core.cellCenter(
+      (bounds.minColumn + bounds.maxColumn) / 2,
+      (bounds.minRow + bounds.maxRow) / 2,
+      grid.room,
+    );
+  }
+
+  /**
+   * Centre on the house at the chosen size. Deliberately not TinyHouseCamera.fit,
+   * whose framing is tuned for the fixed 1200x675 builder shell and leaves the
+   * house hundreds of pixels off-centre in a full-screen overlay — which is what
+   * made zooming feel like it shoved the house away.
+   */
+  function centerHouse(scale) {
+    const centre = houseCentre();
+    if (centre) window.TinyHouseCamera?.centerOn?.(centre.x, centre.y, scale);
+    return Boolean(centre);
+  }
+
+  function frameHouseWhenReady(attempt = 0) {
+    if (attempt > 40) return;
+    if (!window.TinyHouseCamera?.centerOn || !centerHouse(readSize())) {
+      setTimeout(() => frameHouseWhenReady(attempt + 1), 250);
+    }
+  }
+
   function boot() {
     buildLauncher();
     if (overlay) collapseAll();
     installClickThrough();
+    frameHouseWhenReady();
+    window.addEventListener("resize", () => {
+      if (!following) centerHouse();
+    });
 
     // Structure, Rooms and Cozy panels are created after their plugins load;
     // keep them collapsed in overlay mode until the user asks for them.

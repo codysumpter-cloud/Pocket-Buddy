@@ -512,6 +512,23 @@
     });
   }
 
+  /**
+   * Minimal always-on view API (distinct from the dev-only studio bridge) so
+   * the overlay shell can point the camera at whoever you are playing.
+   */
+  function installViewApi() {
+    if (window.PocketBuddyHomeView) return;
+    window.PocketBuddyHomeView = Object.freeze({
+      playerPoint() {
+        const actor = human || buddy;
+        if (!actor || !window.TinyHouseStructure?.grid) return null;
+        const point = worldPoint(actor.cell);
+        return { x: point.x, y: point.y, id: actor.id };
+      },
+      hasPlayer: () => Boolean(human || buddy),
+    });
+  }
+
   function typingTarget(target) {
     return target instanceof Element && Boolean(target.closest("input,textarea,select,[contenteditable='true']"));
   }
@@ -559,6 +576,7 @@
 
     installControls();
     installInput();
+    installViewApi();
     installStudioBridge();
     requestAnimationFrame(loop);
   }

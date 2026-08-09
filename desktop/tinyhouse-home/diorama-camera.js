@@ -6,7 +6,9 @@
 
   runtime.use({ name: "diorama-camera-feel", init(ctx) {
     const MIN_SCALE = 0.38;
-    const MAX_SCALE = 2.2;
+    // Raised so zoom can actually walk you up to the house rather than
+    // stopping at a middle distance.
+    const MAX_SCALE = 6;
     const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const pointers = new Map();
     const target = {
@@ -211,6 +213,21 @@
       zoomOut() { zoomCenter(1 / 1.18); },
       fit: fitHouseSmooth,
       syncTarget,
+      minScale: MIN_SCALE,
+      maxScale: MAX_SCALE,
+      /** Put a stage-space point at the centre of the viewport. */
+      centerOn(worldX, worldY, nextScale) {
+        const rect = ctx.viewport.getBoundingClientRect();
+        if (Number.isFinite(nextScale)) target.scale = ctx.clamp(nextScale, MIN_SCALE, MAX_SCALE);
+        target.panX = rect.width / 2 - Number(worldX) * target.scale;
+        target.panY = rect.height / 2 - Number(worldY) * target.scale;
+        startAnimation();
+      },
+      /** Zoom about the viewport centre, keeping what you are looking at. */
+      setScale(nextScale) {
+        const rect = ctx.viewport.getBoundingClientRect();
+        zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, Number(nextScale));
+      },
       get view() {
         return { scale: target.scale, panX: target.panX, panY: target.panY };
       },

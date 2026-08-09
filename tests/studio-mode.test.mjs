@@ -455,3 +455,29 @@ test("closing Home never throws when the overlay is already gone", () => {
   assert.match(main, /if \(overlayWindow && !overlayWindow\.isDestroyed\(\)\) \{/);
   assert.match(home, /try \{ onClosed\(\); \} catch/);
 });
+
+test("camera separates house size from zoom and can reach the house", () => {
+  const camera = read("desktop/tinyhouse-home/diorama-camera.js");
+  const overlayJs = read("desktop/home-overlay.js");
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+
+  // Zoom used to stop at a middle distance.
+  assert.match(camera, /const MAX_SCALE = 6;/);
+  assert.match(camera, /centerOn\(worldX, worldY, nextScale\)/);
+  assert.match(camera, /setScale\(nextScale\)/);
+
+  // TinyHouseCamera.fit frames for the fixed 1200x675 builder shell and leaves
+  // the house far off-centre in a full-screen overlay, which is what made
+  // zooming feel like it shoved the house away.
+  assert.match(overlayJs, /function centerHouse\(scale\)/);
+  assert.match(overlayJs, /function houseCentre\(\)/);
+  assert.doesNotMatch(overlayJs, /TinyHouseCamera\?\.fit\?\.\(\)/);
+
+  // Size is persisted and applied as the base scale, independent of zoom.
+  assert.match(overlayJs, /SIZE_KEY = "pocket-buddy\.home\.sizeScale"/);
+  assert.match(overlayJs, /function nudgeSize\(multiplier\)/);
+
+  // Follow needs a player position in production, not the dev-only bridge.
+  assert.match(actors, /window\.PocketBuddyHomeView = Object\.freeze\(/);
+  assert.match(overlayJs, /PocketBuddyHomeView\?\.playerPoint\?\.\(\)/);
+});
