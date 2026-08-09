@@ -65,10 +65,24 @@
     return Boolean(panel) && !hidden.has(entry.id);
   }
 
+  /**
+   * Pop-outs are mutually exclusive. They were previously shown at their
+   * original docked coordinates, so opening two stacked them on top of each
+   * other and left the pair unusable.
+   */
   function togglePanel(entry, button) {
     if (!panelFor(entry)) return;
-    isOpen(entry) ? hidePanel(entry) : showPanel(entry);
-    button.dataset.open = isOpen(entry) ? "true" : "false";
+    const wasOpen = isOpen(entry);
+    for (const other of POPOUTS) if (other.id !== entry.id) hidePanel(other);
+    wasOpen ? hidePanel(entry) : showPanel(entry);
+    syncLauncherState();
+  }
+
+  function syncLauncherState() {
+    for (const button of document.querySelectorAll("#pb-home-launcher button[data-panel]")) {
+      const entry = POPOUTS.find((item) => item.id === button.dataset.panel);
+      button.dataset.open = entry && isOpen(entry) ? "true" : "false";
+    }
   }
 
   function collapseAll() {
@@ -102,6 +116,7 @@
     for (const entry of POPOUTS) {
       const button = make(entry.label, entry.title, (self) => togglePanel(entry, self));
       button.dataset.open = "false";
+      button.dataset.panel = entry.id;
     }
 
     // Size is the base scale of the house; zoom moves the camera relative to
@@ -277,6 +292,14 @@
 
   function boot() {
     buildLauncher();
+    window.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (!POPOUTS.some(isOpen)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      collapseAll();
+      syncLauncherState();
+    }, true);
     if (overlay) collapseAll();
     installClickThrough();
     frameHouseWhenReady();
