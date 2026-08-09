@@ -64,13 +64,34 @@
     const names = Object.keys(animations);
     const exact = (name) => names.find((candidate) => candidate.toLowerCase() === name);
     const match = (pattern, exclude = null) => names.find((candidate) => pattern.test(candidate) && (!exclude || !exclude.test(candidate)));
-    const idleName = exact("ani_idle") || match(/idle/i, /battle/i) || names[0];
-    const walkName = exact("ani_walk") || match(/walk/i) || exact("ani_run") || match(/run/i) || idleName;
+    // Combat and injury animations are never a resting or travelling pose. The
+    // old fallback chain ended at names[0], which happily selected the very
+    // `ani_idle_battle` clip the idle filter had just excluded — and its first
+    // frame is nearly empty, so Ani rendered as a few stray pixels.
+    const COMBAT = /battle|death|punch|attack|hurt|fall|roll|jump/i;
+    const idleName = exact("ani_idle")
+      || match(/idle/i, COMBAT)
+      || match(/stand|relax|breath/i, COMBAT)
+      || names.find((candidate) => !COMBAT.test(candidate))
+      // Empty means "use the authored rotation sheet", which is the pack's
+      // canonical standing pose. Better a true still frame than a combat frame.
+      || "";
+    const walkName = exact("ani_walk")
+      || match(/walk/i, COMBAT)
+      || exact("ani_run")
+      || match(/run/i, COMBAT)
+      || idleName;
+    const anchorPath = rotations.south || rotations[Object.keys(rotations)[0]] || null;
+    const anchor = anchorPath
+      ? await measureAnchor(privateUrl(sha, anchorPath), Number(size.width), Number(size.height))
+      : { centerX: Number(size.width) / 2, footY: Number(size.height), topY: 0, measured: false };
+
     return {
       sha,
       label,
       width: Number(size.width),
       height: Number(size.height),
+      anchor,
       animations,
       rotations,
       idleName,
@@ -91,6 +112,52 @@
         return Math.max(1, frames.length);
       },
     };
+  }
+
+  /**
+   * PixelLab frames pad the character inside a square canvas, and the padding
+   * differs per pack (Ani occupies 17x48 of a 100x100 frame, with 28px of empty
+   * space below her feet). Anchoring the frame's bottom edge to a tile centre
+   * therefore leaves an actor floating above the floor.
+   *
+   * Measure the opaque bounding box of a representative frame once per pack and
+   * anchor on the real feet and the real horizontal centre instead.
+   */
+  async function measureAnchor(url, width, height) {
+    const fallback = { centerX: width / 2, footY: height, topY: 0, measured: false };
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("anchor frame failed to load"));
+        image.src = url;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || width;
+      canvas.height = image.naturalHeight || height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+
+      let minX = canvas.width;
+      let maxX = -1;
+      let minY = canvas.height;
+      let maxY = -1;
+      for (let y = 0; y < canvas.height; y += 1) {
+        for (let x = 0; x < canvas.width; x += 1) {
+          if (data[(canvas.width * y + x) * 4 + 3] <= 8) continue;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+      if (maxY < 0) return fallback;
+      return { centerX: (minX + maxX + 1) / 2, footY: maxY + 1, topY: minY, measured: true };
+    } catch {
+      return fallback;
+    }
   }
 
   function directionFromWorldDelta(dx, dy, fallback = "south") {
@@ -216,10 +283,13 @@
     }
     const width = Math.round(actor.art.width * actor.scale);
     const height = Math.round(actor.art.height * actor.scale);
+    const anchor = actor.art.anchor;
     actor.image.style.width = `${width}px`;
     actor.image.style.height = `${height}px`;
-    actor.image.style.left = `${Math.round(point.x - width / 2)}px`;
-    actor.image.style.top = `${Math.round(point.y + actor.footOffset - height)}px`;
+    // Anchor the drawn character's own feet and centre to the tile point, not
+    // the padded frame's bottom-left, so actors stand on the floor exactly.
+    actor.image.style.left = `${Math.round(point.x - anchor.centerX * actor.scale)}px`;
+    actor.image.style.top = `${Math.round(point.y + actor.footOffset - anchor.footY * actor.scale)}px`;
     actor.image.style.zIndex = String(1000 + Math.round((point.y + actor.footOffset) * 10 + 8));
   }
 
@@ -229,8 +299,9 @@
     heart.textContent = "♥";
     heart.style.cssText = "position:absolute;z-index:600000;color:#ff5c91;text-shadow:2px 0 #fff,-2px 0 #fff,0 2px #fff,0 -2px #fff;font:bold 24px monospace;pointer-events:none;transition:transform .7s linear,opacity .7s linear;";
     const point = worldPoint(actor.cell);
+    const headHeight = (actor.art.anchor.footY - actor.art.anchor.topY) * actor.scale;
     heart.style.left = `${point.x - 10}px`;
-    heart.style.top = `${point.y - actor.art.height * actor.scale - 10}px`;
+    heart.style.top = `${point.y - headHeight - 10}px`;
     document.querySelector("#item-layer")?.append(heart);
     requestAnimationFrame(() => { heart.style.transform = "translateY(-28px)"; heart.style.opacity = "0"; });
     setTimeout(() => heart.remove(), 750);
@@ -357,6 +428,12 @@
     const humanArt = await loadPixelLab(String(config.humanSha256 || ""), "Ani Iso Human");
     human = createActor("pb-home-human", humanArt, clamp(Number(config.humanScale) || 1.2, 0.8, 2), startCell(0), HUMAN_FOOT_OFFSET);
     human.image.title = "Ani Iso Human — WASD / arrow keys";
+
+    if (!SHA256_RE.test(String(config.petSha256 || ""))) {
+      // Say so rather than rendering an empty house and letting it read as a
+      // missing feature. No substitute pet is invented.
+      showError("No verified Buddy art pack is active, so Home has no pet. Pick a Buddy from My Pets, then reopen Home.");
+    }
 
     if (SHA256_RE.test(String(config.petSha256 || ""))) {
       try {

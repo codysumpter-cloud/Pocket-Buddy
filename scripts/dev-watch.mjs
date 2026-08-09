@@ -24,9 +24,11 @@ const REBUILD_PATHS = ["src", "build.js", "scripts/postprocess-build.mjs", "spri
 const RELAUNCH_PATHS = ["desktop"];
 
 const studioMode = process.argv.includes("--studio");
+const homeMode = process.argv.includes("--home");
 const childEnv = {
   ...process.env,
   ...(studioMode ? { POCKET_BUDDY_STUDIO: "1", POCKET_BUDDY_STUDIO_OPEN: "1" } : {}),
+  ...(homeMode ? { POCKET_BUDDY_STUDIO: "1", POCKET_BUDDY_STUDIO_HOME: "1" } : {}),
 };
 
 let electron = null;

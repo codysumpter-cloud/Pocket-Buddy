@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from "electron";
 import { createCanonicalHomeManager } from "./canonical-home.mjs";
 import { createStudioManager } from "./studio/studio-main.mjs";
-import { STUDIO_TRAY_LABEL, devToolsShortcutsEnabled, studioAutoOpen, studioEnabled } from "./studio/studio-gate.mjs";
+import { STUDIO_TRAY_LABEL, devToolsShortcutsEnabled, homeAutoOpen, studioAutoOpen, studioEnabled } from "./studio/studio-gate.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -264,6 +264,20 @@ function createTray() {
   refreshTrayMenu();
 }
 
+/**
+ * Developer convenience: retry the normal "home" command until Home is open.
+ * Retrying matters because the renderer must first install and verify the
+ * bundled art packs before it can name the Home human.
+ */
+function scheduleHomeAutoOpen(attempt = 0) {
+  if (attempt > 14 || canonicalHome?.isOpen()) return;
+  setTimeout(() => {
+    if (canonicalHome?.isOpen()) return;
+    sendCommand("home");
+    scheduleHomeAutoOpen(attempt + 1);
+  }, attempt === 0 ? 2500 : 2000);
+}
+
 function scheduleDisplayRefresh() {
   if (displayRefreshTimer) clearTimeout(displayRefreshTimer);
   displayRefreshTimer = setTimeout(() => {
@@ -451,6 +465,7 @@ app.whenReady().then(async () => {
   overlayWindow = createOverlayWindow();
   createTray();
   if (studioAutoOpen(studioContext())) studio.open();
+  if (homeAutoOpen(studioContext())) scheduleHomeAutoOpen();
 
   screen.on("display-added", scheduleDisplayRefresh);
   screen.on("display-removed", scheduleDisplayRefresh);

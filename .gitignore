@@ -1,5 +1,10 @@
 /node_modules
 .DS_Store
+
+# Licensed/purchased art must never be committed to this public repository.
+# Private builds drop verified packs here immediately before packaging.
+/private-art/*.zip
+/private-art/private-art-manifest.json
 /dist/birb.bundled.js
 obsidian-test.sh
 obsidian-build.sh

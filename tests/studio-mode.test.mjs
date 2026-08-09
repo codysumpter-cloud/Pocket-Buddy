@@ -249,3 +249,65 @@ test("a watch command rebuilds the core and relaunches Electron", () => {
   assert.match(watcher, /RELAUNCH_PATHS/);
   assert.match(watcher, /POCKET_BUDDY_STUDIO/);
 });
+
+// ------------------------------------------------- Home actor correctness
+
+test("Home never picks a combat or injury clip as an idle or walk pose", () => {
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+
+  // The old chain ended at names[0], which re-selected the very
+  // `ani_idle_battle` clip the idle filter excluded — and its first frame is
+  // almost entirely transparent, so Ani rendered as a few stray pixels.
+  assert.match(actors, /const COMBAT = \/battle\|death\|punch\|attack\|hurt\|fall\|roll\|jump\/i;/);
+  assert.match(actors, /match\(\/idle\/i, COMBAT\)/);
+  assert.match(actors, /match\(\/walk\/i, COMBAT\)/);
+  assert.doesNotMatch(actors, /idleName = exact\("ani_idle"\) \|\| match\(\/idle\/i, \/battle\/i\) \|\| names\[0\]/);
+
+  // Simulate the real Ani pack's animation names through the same chain.
+  const names = ["ani_idle_battle", "ani_roll", "The_boy_stands_in_a_relaxed_upright_position_and_g",
+    "ani_jump", "ani_punch", "ani_death", "ani_run", "ani_fall", "ani_walk"];
+  const COMBAT = /battle|death|punch|attack|hurt|fall|roll|jump/i;
+  const exact = (name) => names.find((candidate) => candidate.toLowerCase() === name);
+  const match = (pattern, exclude = null) => names.find((candidate) => pattern.test(candidate) && (!exclude || !exclude.test(candidate)));
+  const idleName = exact("ani_idle") || match(/idle/i, COMBAT) || match(/stand|relax|breath/i, COMBAT)
+    || names.find((candidate) => !COMBAT.test(candidate)) || "";
+  const walkName = exact("ani_walk") || match(/walk/i, COMBAT) || exact("ani_run") || match(/run/i, COMBAT) || idleName;
+
+  assert.doesNotMatch(idleName, COMBAT, `idle must not be a combat clip, got ${idleName}`);
+  assert.doesNotMatch(walkName, COMBAT, `walk must not be a combat clip, got ${walkName}`);
+  assert.equal(walkName, "ani_walk");
+});
+
+test("actors are anchored on their drawn feet, not the padded frame", () => {
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+
+  // PixelLab pads characters inside a square frame (Ani occupies 17x48 of a
+  // 100x100 frame with 28px of empty space below her feet). Anchoring the frame
+  // bottom to a tile centre left actors floating above the floor.
+  assert.match(actors, /async function measureAnchor\(/);
+  assert.match(actors, /footY: maxY \+ 1/);
+  assert.match(actors, /point\.x - anchor\.centerX \* actor\.scale/);
+  assert.match(actors, /point\.y \+ actor\.footOffset - anchor\.footY \* actor\.scale/);
+  assert.doesNotMatch(actors, /point\.x - width \/ 2/);
+  assert.doesNotMatch(actors, /actor\.footOffset - height/);
+});
+
+test("a bundled Buddy is adopted only when the user has not chosen a pet", () => {
+  const renderer = read("desktop/renderer.js");
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+
+  // The built-in pocket-bird has no verified archive, so Home reported an empty
+  // pet hash and rendered no Buddy at all.
+  assert.match(renderer, /async function ensureActiveBuddyPack\(/);
+  assert.match(renderer, /if \(activeId && activeId !== "pocket-bird"\) return;/);
+  assert.match(renderer, /entries\.find\(\(entry\) => entry\.kind === "buddy"\)/);
+  // Must not hijack a stored human chill preference, which the catalog's
+  // selectPet would do by forcing chillActor to "pet".
+  assert.doesNotMatch(renderer, /\bselectPet\s*\(/);
+  assert.match(renderer, /setActiveBuddy/);
+  assert.match(renderer, /restoreChillActor/);
+
+  // And when no verified pet is active, Home says so instead of rendering an
+  // empty house that reads as a missing feature.
+  assert.match(actors, /No verified Buddy art pack is active/);
+});

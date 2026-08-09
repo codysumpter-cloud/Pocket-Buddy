@@ -31,6 +31,17 @@ export function studioAutoOpen({ packaged = true, env = {} } = {}) {
 }
 
 /**
+ * Reopen Home automatically after boot (POCKET_BUDDY_STUDIO_HOME=1). Working on
+ * Home otherwise means re-entering it by hand after every watch relaunch. This
+ * asks the renderer for the same Home the tray opens, so the verified-art
+ * handshake and single-presence contract are unchanged.
+ */
+export function homeAutoOpen({ packaged = true, env = {} } = {}) {
+  if (!studioEnabled({ packaged, env })) return false;
+  return TRUE_VALUES.has(flagValue(env, "POCKET_BUDDY_STUDIO_HOME"));
+}
+
+/**
  * DevTools shortcuts (F12, Ctrl/Cmd+Shift+I) follow the same gate so production
  * keyboard behavior is unchanged.
  */
