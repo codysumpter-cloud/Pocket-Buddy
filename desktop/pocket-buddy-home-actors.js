@@ -49,12 +49,100 @@
     throw new Error("The canonical TinyHouse runtime did not finish starting.");
   }
 
+  // East/west mirror partners. PixelLab exports occasionally author an
+  // animation's directional folders mirrored relative to the pack's rotation
+  // sheet, which makes a character walk facing the wrong way while standing
+  // still looks correct.
+  const MIRRORED_DIRECTION = Object.freeze({
+    east: "west",
+    west: "east",
+    "south-east": "south-west",
+    "south-west": "south-east",
+    "north-east": "north-west",
+    "north-west": "north-east",
+    north: "north",
+    south: "south",
+  });
+
+  const DRESSED_STATE = /wearing|clothed|dressed|outfit|jeans|shirt|hoodie|suit|uniform/i;
+
+  /**
+   * PixelLab packs ship several appearance states. Prefer a dressed state, and
+   * prefer one that actually carries animations — an undressed base with a full
+   * animation set is not a reason to render the character undressed.
+   */
+  function pickState(states) {
+    const animated = states.filter((entry) => Object.keys(entry?.frames?.animations || {}).length > 0);
+    const pool = animated.length ? animated : states;
+    const dressed = pool.find((entry) => DRESSED_STATE.test(`${entry?.folder ?? ""} ${entry?.character?.name ?? ""}`));
+    return dressed || pool[0] || null;
+  }
+
+  /** Alpha silhouette of one frame, used only for mirror detection. */
+  async function silhouette(url) {
+    try {
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("frame failed to load"));
+        image.src = url;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      const mask = new Uint8Array(canvas.width * canvas.height);
+      for (let index = 0; index < mask.length; index += 1) mask[index] = data[index * 4 + 3] > 8 ? 1 : 0;
+      return { width: canvas.width, height: canvas.height, mask };
+    } catch {
+      return null;
+    }
+  }
+
+  function maskDifference(a, b, mirror) {
+    if (a.width !== b.width || a.height !== b.height) return Number.POSITIVE_INFINITY;
+    let total = 0;
+    for (let y = 0; y < a.height; y += 1) {
+      for (let x = 0; x < a.width; x += 1) {
+        const bx = mirror ? a.width - 1 - x : x;
+        total += Math.abs(a.mask[a.width * y + x] - b.mask[b.width * y + bx]);
+      }
+    }
+    return total / (a.width * a.height);
+  }
+
+  /**
+   * Decide whether an animation's directional folders are mirrored against the
+   * pack's own rotation sheet. Verified to report Ani's walk as mirrored (6/6
+   * directions) and the Balinese Cat's as not mirrored (0/6).
+   */
+  async function detectMirroredAnimation(sha, rotations, animation) {
+    if (!animation) return false;
+    let flipped = 0;
+    let compared = 0;
+    for (const direction of ["east", "west"]) {
+      const rotationPath = rotations?.[direction];
+      const framePath = animation?.[direction]?.[0];
+      if (!rotationPath || !framePath) continue;
+      const [rotation, frame] = await Promise.all([
+        silhouette(privateUrl(sha, rotationPath)),
+        silhouette(privateUrl(sha, framePath)),
+      ]);
+      if (!rotation || !frame) continue;
+      compared += 1;
+      if (maskDifference(frame, rotation, true) < maskDifference(frame, rotation, false)) flipped += 1;
+    }
+    return compared > 0 && flipped * 2 > compared;
+  }
+
   async function loadPixelLab(sha, label) {
     if (!SHA256_RE.test(String(sha || ""))) throw new Error(`${label} art hash is missing or invalid.`);
     const response = await fetch(privateUrl(sha, "metadata.json"), { cache: "no-store" });
     if (!response.ok) throw new Error(`${label} metadata could not be read from its verified art pack.`);
     const metadata = await response.json();
-    const state = Array.isArray(metadata?.states) ? metadata.states[0] : null;
+    const state = pickState(Array.isArray(metadata?.states) ? metadata.states : []);
     const size = state?.character?.size;
     const animations = state?.frames?.animations;
     const rotations = state?.frames?.rotations;
@@ -86,6 +174,18 @@
       ? await measureAnchor(privateUrl(sha, anchorPath), Number(size.width), Number(size.height))
       : { centerX: Number(size.width) / 2, footY: Number(size.height), topY: 0, measured: false };
 
+    const mirroredAnimations = await detectMirroredAnimation(sha, rotations, animations[walkName]);
+
+    // Animation folders may be mirrored against the rotation sheet; rotations
+    // are the pack's ground truth and are always read unmirrored.
+    const framesFor = (animationName, direction) => {
+      const animation = animations[animationName] || animations[idleName] || {};
+      const key = mirroredAnimations ? (MIRRORED_DIRECTION[direction] || direction) : direction;
+      return animation[key]?.length ? animation[key]
+        : animation.south?.length ? animation.south
+        : animation[Object.keys(animation).find((name) => Array.isArray(animation[name]) && animation[name].length)] || [];
+    };
+
     return {
       sha,
       label,
@@ -96,20 +196,15 @@
       rotations,
       idleName,
       walkName,
+      mirroredAnimations,
+      stateName: state?.character?.name || state?.folder || "",
       framePath(animationName, direction, index) {
-        const animation = animations[animationName] || animations[idleName] || {};
-        const frames = animation[direction]?.length ? animation[direction]
-          : animation.south?.length ? animation.south
-          : animation[Object.keys(animation).find((key) => Array.isArray(animation[key]) && animation[key].length)] || [];
+        const frames = framesFor(animationName, direction);
         if (frames.length) return frames[index % frames.length];
         return rotations[direction] || rotations.south || rotations[Object.keys(rotations)[0]] || null;
       },
       frameCount(animationName, direction) {
-        const animation = animations[animationName] || animations[idleName] || {};
-        const frames = animation[direction]?.length ? animation[direction]
-          : animation.south?.length ? animation.south
-          : animation[Object.keys(animation).find((key) => Array.isArray(animation[key]) && animation[key].length)] || [];
-        return Math.max(1, frames.length);
+        return Math.max(1, framesFor(animationName, direction).length);
       },
     };
   }
@@ -272,6 +367,10 @@
 
   function renderActor(actor, now) {
     if (!actor) return;
+    // TinyHouse re-renders #item-layer with replaceChildren whenever furniture
+    // changes, which detaches the actors. Re-attach instead of leaving the
+    // player and pets permanently invisible with no way to bring them back.
+    if (!actor.image.isConnected) document.querySelector("#item-layer")?.append(actor.image);
     const point = worldPoint(actor.cell);
     const animation = actor.animationOverride || (actor.moving ? actor.art.walkName : actor.art.idleName);
     const count = actor.art.frameCount(animation, actor.direction);
@@ -360,6 +459,11 @@
       moving: actor.moving,
       animation: actor.animationOverride || (actor.moving ? actor.art.walkName : actor.art.idleName),
       scale: actor.scale,
+      // Surfaced so Studio can show why a character faces the way it does.
+      appearance: actor.art.stateName,
+      mirroredAnimations: Boolean(actor.art.mirroredAnimations),
+      frameSrc: actor.lastPath,
+      attached: actor.image.isConnected,
     } : null);
 
     window.PocketBuddyHomeStudio = Object.freeze({

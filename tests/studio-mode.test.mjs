@@ -311,3 +311,68 @@ test("a bundled Buddy is adopted only when the user has not chosen a pet", () =>
   // empty house that reads as a missing feature.
   assert.match(actors, /No verified Buddy art pack is active/);
 });
+
+test("Home prefers a dressed, animated appearance state", () => {
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+  assert.match(actors, /function pickState\(states\)/);
+  assert.match(actors, /DRESSED_STATE = \/wearing\|clothed\|dressed\|outfit\|jeans\|shirt\|hoodie\|suit\|uniform\/i/);
+  assert.doesNotMatch(actors, /metadata\?\.states\[0\]/, "must not blindly take the first state");
+
+  // Mirror the shipped selection against the real Ani pack's state list: the
+  // undressed base carries animations too, so "has animations" alone is not
+  // enough to pick the right appearance.
+  const DRESSED = /wearing|clothed|dressed|outfit|jeans|shirt|hoodie|suit|uniform/i;
+  const pickState = (states) => {
+    const animated = states.filter((entry) => Object.keys(entry?.frames?.animations || {}).length > 0);
+    const pool = animated.length ? animated : states;
+    return pool.find((entry) => DRESSED.test(`${entry?.folder ?? ""} ${entry?.character?.name ?? ""}`)) || pool[0] || null;
+  };
+
+  const anims = { ani_idle: {}, ani_walk: {} };
+  assert.equal(pickState([
+    { folder: "Idle", character: { name: "Idle" }, frames: { animations: anims } },
+    { folder: "wearing_jeans_and_bl_copy", character: { name: "wearing jeans and bl (copy)" }, frames: { animations: anims } },
+  ]).folder, "wearing_jeans_and_bl_copy");
+
+  // If the only dressed state has no animations, prefer an animated state over
+  // a static one rather than freezing the character.
+  assert.equal(pickState([
+    { folder: "Idle", character: { name: "Idle" }, frames: { animations: anims } },
+    { folder: "wearing_jeans_and_bl_copy", character: { name: "wearing jeans" }, frames: { animations: {} } },
+  ]).folder, "Idle");
+});
+
+test("mirrored animation folders are detected and corrected against the rotation sheet", () => {
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+
+  assert.match(actors, /async function detectMirroredAnimation\(/);
+  assert.match(actors, /maskDifference\(frame, rotation, true\) < maskDifference\(frame, rotation, false\)/);
+  // Rotations are ground truth and must never be mirrored.
+  assert.match(actors, /return rotations\[direction\] \|\| rotations\.south/);
+  assert.match(actors, /mirroredAnimations \? \(MIRRORED_DIRECTION\[direction\] \|\| direction\) : direction/);
+
+  // The mirror map must be a true east/west involution that leaves the
+  // viewer-facing and away-facing poses alone.
+  const MIRRORED = {
+    east: "west", west: "east",
+    "south-east": "south-west", "south-west": "south-east",
+    "north-east": "north-west", "north-west": "north-east",
+    north: "north", south: "south",
+  };
+  for (const [from, to] of Object.entries(MIRRORED)) {
+    assert.equal(MIRRORED[to], from, `${from} -> ${to} must mirror back`);
+  }
+  assert.equal(MIRRORED.north, "north");
+  assert.equal(MIRRORED.south, "south");
+});
+
+test("actors survive the item layer being re-rendered by a furniture change", () => {
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+  const app = read("desktop/tinyhouse-home/app.js");
+
+  // app.js renders furniture with replaceChildren, which detaches the actor
+  // elements the bridge appended; without a re-attach the player and pets
+  // disappear permanently on the first furniture click.
+  assert.match(app, /itemLayer\.replaceChildren\(/);
+  assert.match(actors, /if \(!actor\.image\.isConnected\) document\.querySelector\("#item-layer"\)\?\.append\(actor\.image\)/);
+});

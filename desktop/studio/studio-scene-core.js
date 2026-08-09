@@ -183,6 +183,12 @@
       moving: Boolean(actor.moving),
       animation: actor.animation || "",
       scale: number(actor.scale, 1),
+      appearance: actor.appearance || "",
+      // A pack whose animation folders are mirrored against its rotation sheet
+      // will walk facing the wrong way while standing still looks correct.
+      mirroredAnimations: Boolean(actor.mirroredAnimations),
+      frameSrc: actor.frameSrc || "",
+      attached: actor.attached !== false,
     };
   }
 

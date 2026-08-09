@@ -285,3 +285,5 @@ select, input[type="text"], input[type="number"] {
 .log-line.error { color: var(--error); }
 .log-line.info, .log-line.debug { color: var(--muted); }
 .log-line .when { color: #5d6478; margin-right: 6px; }
+
+.actor-card .meta.warn { color: var(--warn); }

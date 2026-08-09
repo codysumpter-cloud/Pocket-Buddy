@@ -362,8 +362,33 @@
       coords.textContent = `${actor.position.column.toFixed(3)}, ${actor.position.row.toFixed(3)}`;
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = `cell ${actor.cell.column},${actor.cell.row} · ${actor.direction} · ${actor.animation || "auto"}`;
+      meta.textContent = `cell ${actor.cell.column},${actor.cell.row} · facing ${actor.direction} · ${actor.animation || "auto"}`;
       card.append(name, coords, meta);
+
+      if (actor.appearance) {
+        const appearance = document.createElement("div");
+        appearance.className = "meta";
+        appearance.textContent = `appearance: ${actor.appearance}`;
+        card.append(appearance);
+      }
+      if (actor.mirroredAnimations) {
+        const warn = document.createElement("div");
+        warn.className = "meta warn";
+        warn.textContent = "⚠ animation folders mirrored vs rotations — auto-corrected";
+        card.append(warn);
+      }
+      if (actor.attached === false) {
+        const warn = document.createElement("div");
+        warn.className = "meta warn";
+        warn.textContent = "⚠ detached from #item-layer — will be re-attached";
+        card.append(warn);
+      }
+      if (actor.frameSrc) {
+        const frame = document.createElement("div");
+        frame.className = "meta";
+        frame.textContent = actor.frameSrc.split("/").slice(-3).join("/");
+        card.append(frame);
+      }
       host.append(card);
     }
   }
