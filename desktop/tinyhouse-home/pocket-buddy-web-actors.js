@@ -248,6 +248,8 @@
       idle.style.background = mode === "idle" ? "#3f756e" : "#755b58";
     }
     sync();
+    // Same omission as the desktop bridge: built, then never inserted.
+    shell.append(controls);
   }
 
   function installInput() {

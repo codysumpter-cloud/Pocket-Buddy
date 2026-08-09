@@ -432,6 +432,9 @@
       idle.style.background = mode === "idle" ? "#3f756e" : "#755b58";
     }
     sync();
+    // The panel was fully built and then never inserted, so Home shipped with
+    // no way to switch modes, pet the Buddy, or leave except the Escape key.
+    shell.append(controls);
   }
 
   function installUiScale() {

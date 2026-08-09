@@ -376,3 +376,26 @@ test("actors survive the item layer being re-rendered by a furniture change", ()
   assert.match(app, /itemLayer\.replaceChildren\(/);
   assert.match(actors, /if \(!actor\.image\.isConnected\) document\.querySelector\("#item-layer"\)\?\.append\(actor\.image\)/);
 });
+
+test("the in-game control bar is actually inserted into the Home shell", () => {
+  const desktop = read("desktop/pocket-buddy-home-actors.js");
+  const web = read("desktop/tinyhouse-home/pocket-buddy-web-actors.js");
+
+  // Both bridges built the panel, wired every button, called sync() — and then
+  // never appended it, so Home shipped with no way to switch modes, pet the
+  // Buddy, or leave except the Escape key.
+  for (const [name, source] of [["desktop", desktop], ["web", web]]) {
+    assert.match(source, /shell\.append\(controls\)/, `${name} bridge must insert the control panel`);
+    const install = source.slice(source.indexOf("function installControls()"));
+    const body = install.slice(0, install.indexOf("\n  }\n") + 5);
+    assert.ok(
+      body.indexOf("shell.append(controls)") > body.indexOf('controls.id = "pb-home-life-controls"'),
+      `${name} bridge must append the panel after building it`,
+    );
+  }
+
+  // The desktop bar is the only in-game route to these actions.
+  for (const label of ["CONTROL HUMAN", "HOUSE CHILL", "PET", "DESKTOP HUMAN", "DESKTOP PET", "LEAVE HOME", "QUIT GAME"]) {
+    assert.ok(desktop.includes(`"${label}`), `control bar must offer ${label}`);
+  }
+});
