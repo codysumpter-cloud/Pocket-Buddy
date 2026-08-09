@@ -33,6 +33,7 @@ test("continuous actors stop at closed walls but cross open doors", () => {
   assert.ok(blocked.column < 0.5, `closed wall should block before the cell boundary, got ${blocked.column}`);
 
   grid.setDoor("left", 1, 0, "door", true);
+  assert.equal(grid.canTraverse({ column: 0, row: 0 }, { column: 1, row: 0 }), true, "donor HouseGrid should report the open door traversable");
   const through = runtime.PocketBuddyActorMotion.moveGrid(grid, { column: 0, row: 0 }, 0.9, 0);
   assert.ok(through.column > 0.5, `open door should allow continuous crossing, got ${through.column}`);
 });
@@ -47,9 +48,9 @@ test("desktop and web Home use the same continuous actor motion core", () => {
   assert.match(core, /moveScreen/);
   assert.match(core, /moveToward/);
   assert.match(desktop, /PocketBuddyActorMotion\.moveScreen/);
-  assert.match(desktop, /PocketBuddyActorMotion\.moveToward/);
+  assert.match(desktop, /motion\.moveToward/);
   assert.match(web, /PocketBuddyActorMotion\.moveScreen/);
-  assert.match(web, /PocketBuddyActorMotion\.moveToward/);
+  assert.match(web, /motion\.moveToward/);
   assert.doesNotMatch(desktop, /const MOVE_MS = 180/);
   assert.doesNotMatch(web, /const MOVE_MS = 180/);
   assert.doesNotMatch(desktop, /function startMove\(/);
