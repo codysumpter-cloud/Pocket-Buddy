@@ -301,7 +301,7 @@
       // normal play, where idle/walk is chosen from actual movement.
       animationOverride: "",
       // Needs-driven life: what this actor wants, and what it is doing about it.
-      needs: { energy: 0.85, hunger: 0.8, hygiene: 0.85, fun: 0.75, social: 0.8 },
+      needs: loadNeeds(id, { energy: 0.85, hunger: 0.8, hygiene: 0.85, fun: 0.75, social: 0.8 }),
       plan: null,
       busyUntil: 0,
       activity: "",
@@ -341,6 +341,44 @@
   }
 
   // ---------------------------------------------------------- needs-driven life
+
+  const NEEDS_KEY = "pocket-buddy.home.needs.v1";
+  const NEEDS_SAVE_MS = 4000;
+  let lastNeedsSaveAt = 0;
+
+  /**
+   * Restore needs from the previous session.
+   *
+   * Currently effective within a session only: Home is served from
+   * http://127.0.0.1:<random port>, so each launch is a different origin and
+   * localStorage starts empty. House saves and Cozy state share this flaw.
+   * This becomes real persistence once Home has a stable origin.
+   */
+  function loadNeeds(id, fallback) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(NEEDS_KEY) || "{}");
+      const saved = stored?.[id];
+      if (!saved || typeof saved !== "object") return fallback;
+      const restored = { ...fallback };
+      for (const name of window.PocketBuddyAffordances?.NEEDS ?? Object.keys(fallback)) {
+        const value = Number(saved[name]);
+        if (Number.isFinite(value)) restored[name] = clamp(value, 0, 1);
+      }
+      return restored;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function saveNeeds(now) {
+    if (now - lastNeedsSaveAt < NEEDS_SAVE_MS) return;
+    lastNeedsSaveAt = now;
+    try {
+      const payload = {};
+      for (const actor of [human, buddy]) if (actor?.id) payload[actor.id] = actor.needs;
+      localStorage.setItem(NEEDS_KEY, JSON.stringify(payload));
+    } catch { /* a full or blocked store must never break the game loop */ }
+  }
 
   /** Placed furniture that offers something, with its walkable cell. */
   function furnitureCandidates(actor) {
@@ -686,6 +724,7 @@
     maybeMoveIdleHuman(now, dt);
     renderActor(human, now);
     renderActor(buddy, now);
+    saveNeeds(now);
     requestAnimationFrame(loop);
   }
 
