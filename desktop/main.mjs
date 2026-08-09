@@ -267,13 +267,13 @@ function createTray() {
     const maybe = nativeImage.createFromPath(candidate);
     if (!maybe.isEmpty()) { icon = maybe; break; }
   }
+  // macOS menu-bar icons are ~18pt; the packaged 32/48px art was oversized.
+  if (!icon.isEmpty() && process.platform === "darwin") icon = icon.resize({ width: 18, height: 18 });
   tray = new Tray(icon);
   tray.setToolTip("Pocket Buddy");
-  tray.on("click", () => {
-    if (!overlayWindow) return;
-    overlayWindow.isVisible() ? overlayWindow.hide() : overlayWindow.showInactive();
-    refreshTrayMenu();
-  });
+  // Left-click opens the menu. It previously only toggled the overlay, so Quit
+  // was reachable by right-click alone and effectively hidden.
+  tray.on("click", () => tray.popUpContextMenu());
   refreshTrayMenu();
 }
 
