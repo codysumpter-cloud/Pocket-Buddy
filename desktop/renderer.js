@@ -197,6 +197,28 @@
     throw new Error("Desktop bridge returned an invalid bundled art payload.");
   }
 
+  /**
+   * Home renders a Buddy from a verified PixelLab pack. The built-in
+   * "pocket-bird" has no archive, so while it is the active pet Home reports an
+   * empty pet hash and shows no Buddy at all. When verified buddy packs are
+   * bundled and the user has never chosen one, adopt the first bundled buddy so
+   * Home opens with a pet. An explicit user choice is always left alone.
+   */
+  async function ensureActiveBuddyPack(buddy, entries, installedByHash) {
+    const activeId = await buddy.library.activeId();
+    if (activeId && activeId !== "pocket-bird") return;
+
+    const firstBuddy = entries.find((entry) => entry.kind === "buddy");
+    const pack = firstBuddy ? installedByHash.get(firstBuddy.sha256) : null;
+    if (!pack?.id) return;
+
+    // Deliberately narrower than the catalog's selectPet: register the Buddy and
+    // its theme, but do not force the desktop chill actor to "pet". The
+    // restoreChillActor call that follows honors the stored preference.
+    await buddy.library.setActive(pack.id);
+    await buddy.themes?.setActiveBuddy?.(pack.id, pack);
+  }
+
   async function installBundledArt() {
     try {
       setPrivateArtStatus({ state: "checking", total: 0, installed: 0, skipped: 0, failures: [] });
@@ -238,6 +260,7 @@
         installed += 1;
       }
 
+      await ensureActiveBuddyPack(buddy, entries, installedByHash);
       await buddy.home?.reloadHuman?.();
       await buddy.restoreChillActor?.();
       setPrivateArtStatus({

@@ -1,5 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from "electron";
 import { createCanonicalHomeManager } from "./canonical-home.mjs";
+import { createStudioManager } from "./studio/studio-main.mjs";
+import { STUDIO_TRAY_LABEL, devToolsShortcutsEnabled, homeAutoOpen, studioAutoOpen, studioEnabled } from "./studio/studio-gate.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -20,8 +22,39 @@ let quitting = false;
 let displayRefreshTimer = null;
 let bundledArtCache = new Map();
 let selectedMonitor = "primary";
+// Home renders as a transparent desktop overlay by default; "window" restores
+// the original framed window.
+let homeMode = "desktop";
 let desktopPrefsPath = null;
 let canonicalHome = null;
+let studio = null;
+
+// Developer tooling gate. Packaged production builds stay off unless the
+// developer explicitly sets POCKET_BUDDY_STUDIO=1.
+function studioContext() {
+  return { packaged: app.isPackaged, env: process.env };
+}
+
+/**
+ * F12 and Ctrl/Cmd+Shift+I open Chromium DevTools in development only, so
+ * production keyboard behavior is unchanged.
+ */
+const devToolsBoundWindows = new WeakSet();
+
+function installDevToolsShortcuts(window) {
+  if (!devToolsShortcutsEnabled(studioContext())) return;
+  if (!window || window.isDestroyed() || devToolsBoundWindows.has(window)) return;
+  devToolsBoundWindows.add(window);
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const key = String(input.key || "").toLowerCase();
+    const combo = (input.control || input.meta) && input.shift && key === "i";
+    if (key !== "f12" && !combo) return;
+    event.preventDefault();
+    const contents = window.webContents;
+    contents.isDevToolsOpened() ? contents.closeDevTools() : contents.openDevTools({ mode: "detach" });
+  });
+}
 
 if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
@@ -78,6 +111,7 @@ async function loadDesktopPreferences() {
     if (typeof parsed?.selectedMonitor === "string" && (parsed.selectedMonitor === "primary" || /^-?\d+$/.test(parsed.selectedMonitor))) {
       selectedMonitor = parsed.selectedMonitor;
     }
+    if (parsed?.homeMode === "desktop" || parsed?.homeMode === "window") homeMode = parsed.homeMode;
   } catch (error) {
     if (error?.code !== "ENOENT") console.warn("Pocket Buddy desktop preferences could not be read", error);
   }
@@ -86,7 +120,7 @@ async function loadDesktopPreferences() {
 async function saveDesktopPreferences() {
   if (!desktopPrefsPath) desktopPrefsPath = join(app.getPath("userData"), DESKTOP_PREFS_FILE);
   await mkdir(dirname(desktopPrefsPath), { recursive: true });
-  await writeFile(desktopPrefsPath, `${JSON.stringify({ selectedMonitor }, null, 2)}\n`, "utf8");
+  await writeFile(desktopPrefsPath, `${JSON.stringify({ selectedMonitor, homeMode }, null, 2)}\n`, "utf8");
 }
 
 function applySelectedMonitorBounds() {
@@ -143,6 +177,12 @@ function createOverlayWindow() {
   });
 
   applyDesktopWindowContract(window);
+  installDevToolsShortcuts(window);
+  // Re-attach the Studio agent after every load so watch-mode reloads keep
+  // their inspector. No-op when Studio is disabled.
+  window.webContents.on("did-finish-load", () => {
+    void studio?.attachTo(window.webContents).catch(() => {});
+  });
   window.loadFile(join(__dirname, "index.html"));
   window.once("ready-to-show", () => {
     applySelectedMonitorBounds();
@@ -199,6 +239,10 @@ function refreshTrayMenu() {
     { label: "Care", click: () => sendCommand("care") },
     { label: "Talk", click: () => sendCommand("talk") },
     { label: "Monitor", submenu: monitorTrayItems() },
+    ...(studio?.isEnabled() ? [
+      { type: "separator" },
+      { label: STUDIO_TRAY_LABEL, click: () => studio.open() },
+    ] : []),
     { type: "separator" },
     { label: "Quit Pocket Buddy", click: () => { quitting = true; app.quit(); } },
   ]));
@@ -222,6 +266,20 @@ function createTray() {
     refreshTrayMenu();
   });
   refreshTrayMenu();
+}
+
+/**
+ * Developer convenience: retry the normal "home" command until Home is open.
+ * Retrying matters because the renderer must first install and verify the
+ * bundled art packs before it can name the Home human.
+ */
+function scheduleHomeAutoOpen(attempt = 0) {
+  if (attempt > 14 || canonicalHome?.isOpen()) return;
+  setTimeout(() => {
+    if (canonicalHome?.isOpen()) return;
+    sendCommand("home");
+    scheduleHomeAutoOpen(attempt + 1);
+  }, attempt === 0 ? 2500 : 2000);
 }
 
 function scheduleDisplayRefresh() {
@@ -347,7 +405,8 @@ ipcMain.handle("pocket-buddy:open-home", async (event, options) => {
     throw new Error("Canonical Home can only be opened by Pocket Buddy.");
   }
   if (!canonicalHome) throw new Error("Canonical Home is not ready yet.");
-  return canonicalHome.open(options);
+  // The mode is a desktop-shell preference, not something the page chooses.
+  return canonicalHome.open({ ...(options ?? {}), mode: homeMode });
 });
 ipcMain.on("pocket-buddy:close-home", (event) => {
   if (overlayWindow && !overlayWindow.isDestroyed() && event.sender === overlayWindow.webContents) canonicalHome?.close();
@@ -374,6 +433,21 @@ ipcMain.on("pocket-buddy:home-quit", (event) => {
   quitting = true;
   app.quit();
 });
+ipcMain.on("pocket-buddy:home-set-interactive", (event, interactive) => {
+  if (!canonicalHome?.owns(event.sender)) return;
+  canonicalHome.setInteractive(Boolean(interactive));
+});
+ipcMain.on("pocket-buddy:home-set-mode", (event, mode) => {
+  if (!canonicalHome?.owns(event.sender)) return;
+  const value = String(mode ?? "");
+  if (!["desktop", "window"].includes(value) || value === homeMode) return;
+  homeMode = value;
+  void saveDesktopPreferences();
+  // Transparency cannot change on a live window, so reopen through the normal
+  // renderer path that carries the verified art hashes.
+  canonicalHome.close();
+  setTimeout(() => sendCommand("home"), 120);
+});
 
 app.whenReady().then(async () => {
   app.setName("Pocket Buddy");
@@ -381,14 +455,44 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin") app.dock?.hide();
 
   await loadDesktopPreferences();
+
+  studio = createStudioManager({
+    enabled: studioEnabled(studioContext()),
+    resolveTarget: (surface) => {
+      if (surface === "desktop") return overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow.webContents : null;
+      if (surface === "home") return canonicalHome?.webContents() ?? null;
+      return null;
+    },
+    // Home is opened by the renderer so it carries the verified art hashes and
+    // the single-presence handshake. Studio just asks for the same command the
+    // tray uses instead of opening a second Home of its own.
+    onRequestHome: async () => sendCommand("home"),
+  });
+
   canonicalHome = createCanonicalHomeManager({
     getWorkArea: selectedWorkArea,
     getArtEntries: discoverBundledArt,
     readArtBytes: readBundledArt,
-    onClosed: () => overlayWindow?.webContents.send("pocket-buddy:home-closed"),
+    // Guarded: Home can close while the overlay is already being torn down
+    // (quit, or a mode switch that rebuilds the window), and touching
+    // webContents on a destroyed window throws in the main process.
+    onClosed: () => {
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.webContents.send("pocket-buddy:home-closed");
+      }
+    },
+    isStudioEnabled: () => Boolean(studio?.isEnabled()),
+    onReady: (contents) => {
+      const window = contents ? BrowserWindow.fromWebContents(contents) : null;
+      if (window) installDevToolsShortcuts(window);
+      void studio?.attachTo(contents).catch(() => {});
+    },
   });
+
   overlayWindow = createOverlayWindow();
   createTray();
+  if (studioAutoOpen(studioContext())) studio.open();
+  if (homeAutoOpen(studioContext())) scheduleHomeAutoOpen();
 
   screen.on("display-added", scheduleDisplayRefresh);
   screen.on("display-removed", scheduleDisplayRefresh);
@@ -407,7 +511,7 @@ app.whenReady().then(async () => {
   app.quit();
 });
 
-app.on("before-quit", () => { quitting = true; void canonicalHome?.dispose(); });
+app.on("before-quit", () => { quitting = true; studio?.close(); void canonicalHome?.dispose(); });
 app.on("window-all-closed", (event) => {
   event?.preventDefault?.();
 });

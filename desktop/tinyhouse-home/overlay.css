@@ -1,0 +1,84 @@
+/* Pocket Buddy Home desktop-overlay presentation.
+   In desktop mode the builder chrome disappears and only the house itself is
+   painted, so the transparent Electron window shows the real desktop behind. */
+
+#pb-home-launcher {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 500001;
+  display: flex;
+  gap: 5px;
+  padding: 6px;
+  pointer-events: auto;
+  background: #e9d6a5;
+  border: 3px solid #45343a;
+  box-shadow: inset 0 0 0 2px #fff0c8, 4px 5px 0 rgba(17, 15, 19, .72);
+  font: 900 10px "Courier New", monospace;
+  zoom: var(--pb-home-ui-scale, 1);
+}
+
+#pb-home-launcher button {
+  border: 2px solid #45343a;
+  background: #755b58;
+  color: #fff9dc;
+  padding: 5px 8px;
+  font: inherit;
+}
+
+#pb-home-launcher button[data-open="true"] { background: #3f756e; }
+#pb-home-launcher button[data-role="mode"] { background: #7d5d4b; }
+#pb-home-launcher button:hover { outline: 2px solid #fff0c8; }
+
+/* ------------------------------------------------------- desktop overlay */
+
+[data-pb-home-mode="desktop"],
+[data-pb-home-mode="desktop"] body {
+  background: transparent !important;
+}
+
+[data-pb-home-mode="desktop"] #app {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+[data-pb-home-mode="desktop"] #game-shell {
+  width: 100vw;
+  height: 100vh;
+  aspect-ratio: auto;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  overflow: visible;
+}
+
+/* The grid paper backdrop is builder chrome, not part of the house. */
+[data-pb-home-mode="desktop"] #world-viewport {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+[data-pb-home-mode="desktop"] #world-viewport:focus-visible { box-shadow: none; }
+
+/* Pop-outs float above the house instead of being docked panels. */
+[data-pb-home-mode="desktop"] #catalog,
+[data-pb-home-mode="desktop"] #structure-tools,
+[data-pb-home-mode="desktop"] #top-hud,
+[data-pb-home-mode="desktop"] #camera-tools,
+[data-pb-home-mode="desktop"] #selection-tools,
+[data-pb-home-mode="desktop"] #rooms-panel,
+[data-pb-home-mode="desktop"] #cozy-panel {
+  z-index: 500000;
+  box-shadow: 5px 6px 0 rgba(17, 15, 19, .78);
+}
+
+/* Builder hints have no place on the desktop. */
+[data-pb-home-mode="desktop"] #mode-hint { display: none !important; }
+
+[data-pb-home-mode="desktop"] #pb-home-life-controls { bottom: 62px; }
+
+@media (prefers-reduced-motion: reduce) {
+  #pb-home-launcher button { transition: none; }
+}

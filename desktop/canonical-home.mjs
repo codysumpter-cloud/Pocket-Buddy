@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const HOME_ROOT = resolve(join(__dirname, "tinyhouse-home"));
 const ACTOR_BRIDGE = join(__dirname, "pocket-buddy-home-actors.js");
+const OVERLAY_BRIDGE = join(__dirname, "home-overlay.js");
 const HOME_PRELOAD = join(__dirname, "home-preload.cjs");
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const EOCD = 0x06054b50;
@@ -162,6 +163,9 @@ function cleanOptions(value = {}) {
     uiScale: clamp(Number(value?.uiScale) || 1, 0.5, 2.5),
     humanScale: clamp(Number(value?.humanScale) || 1.2, 0.8, 2),
     buddyName: typeof value?.buddyName === "string" ? value.buddyName.trim().slice(0, 64) : "Buddy",
+    // "desktop" renders Home as a transparent always-on-top overlay on the
+    // real desktop; "window" keeps the original framed window.
+    mode: value?.mode === "desktop" ? "desktop" : "window",
   };
 }
 
@@ -173,11 +177,22 @@ function boundedWindowBounds(workArea, prior = null) {
   return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
 }
 
-export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes, onClosed = () => {} }) {
+export function createCanonicalHomeManager({
+  getWorkArea,
+  getArtEntries,
+  readArtBytes,
+  onClosed = () => {},
+  // Developer-tool hooks. `isStudioEnabled` decides whether Home advertises the
+  // Studio bridge to its own runtime; `onReady` lets Studio attach to the real
+  // Home webContents. Both are inert in production.
+  isStudioEnabled = () => false,
+  onReady = () => {},
+}) {
   let homeWindow = null;
   let server = null;
   let baseUrl = "";
   let currentConfig = null;
+  let currentMode = "window";
   const archiveCache = new Map();
 
   async function entries() {
@@ -235,6 +250,9 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
       if (url.pathname === "/bridge/pocket-buddy-home-actors.js") {
         return send(res, 200, await readFile(ACTOR_BRIDGE), "text/javascript; charset=utf-8");
       }
+      if (url.pathname === "/bridge/home-overlay.js") {
+        return send(res, 200, await readFile(OVERLAY_BRIDGE), "text/javascript; charset=utf-8");
+      }
       if (url.pathname.startsWith("/pack/")) {
         return serveArchivePath(res, await resolveEnvironment(), url.pathname.slice("/pack/".length));
       }
@@ -254,7 +272,9 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
         let body = await readFile(target);
         if (target.endsWith("index.html")) {
           const config = JSON.stringify(currentConfig ?? {}).replace(/</g, "\\u003c");
-          const injection = `<script>window.POCKET_BUDDY_HOME_CONFIG=Object.freeze(${config});</script><script src="/bridge/pocket-buddy-home-actors.js"></script>`;
+              const injection = `<script>window.POCKET_BUDDY_HOME_CONFIG=Object.freeze(${config});</script>`
+            + `<script src="/bridge/pocket-buddy-home-actors.js"></script>`
+            + `<script src="/bridge/home-overlay.js"></script>`;
           body = Buffer.from(body.toString("utf8").replace("</body>", `${injection}</body>`), "utf8");
         }
         return send(res, 200, body, mimeFor(target));
@@ -296,18 +316,44 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
     return cleaned;
   }
 
+  /** Transparent always-on-top desktop overlay, matching the pet overlay. */
+  function applyOverlayContract(window) {
+    window.setAlwaysOnTop(true, "screen-saver");
+    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    window.setIgnoreMouseEvents(true, { forward: true });
+    if (process.platform === "darwin") window.setWindowButtonVisibility?.(false);
+  }
+
   async function open(options = {}) {
-    currentConfig = await validateConfig(options);
+    currentConfig = { ...(await validateConfig(options)), studio: Boolean(isStudioEnabled()) };
     const url = await ensureServer();
+    const overlay = currentConfig.mode === "desktop";
+
+    // Transparency and frame cannot be toggled on a live BrowserWindow, so a
+    // mode change rebuilds the window rather than pretending to switch.
+    if (homeWindow && !homeWindow.isDestroyed() && currentMode !== currentConfig.mode) {
+      const stale = homeWindow;
+      homeWindow = null;
+      stale.destroy();
+    }
+    currentMode = currentConfig.mode;
+
     if (!homeWindow || homeWindow.isDestroyed()) {
+      const workArea = getWorkArea();
       homeWindow = new BrowserWindow({
-        ...boundedWindowBounds(getWorkArea()),
+        ...(overlay ? workArea : boundedWindowBounds(workArea)),
         title: "Pocket Buddy Home",
         show: false,
-        backgroundColor: "#0e0f13",
-        frame: true,
-        resizable: true,
-        minimizable: true,
+        transparent: overlay,
+        backgroundColor: overlay ? "#00000000" : "#0e0f13",
+        frame: !overlay,
+        titleBarStyle: overlay ? "hidden" : "default",
+        hasShadow: !overlay,
+        skipTaskbar: overlay,
+        acceptFirstMouse: overlay,
+        resizable: !overlay,
+        movable: !overlay,
+        minimizable: !overlay,
         maximizable: false,
         fullscreenable: false,
         webPreferences: {
@@ -319,10 +365,21 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
         },
       });
       homeWindow.setMenuBarVisibility(false);
-      homeWindow.on("closed", () => { homeWindow = null; onClosed(); });
+      homeWindow.on("closed", () => {
+        homeWindow = null;
+        // A listener fault must not become an unhandled main-process exception.
+        try { onClosed(); } catch (error) { console.warn("Pocket Buddy Home close handler failed", error); }
+      });
+      // Re-runs on every navigation/reload so developer tooling survives a
+      // Studio reload without duplicating the Home window itself.
+      homeWindow.webContents.on("did-finish-load", () => {
+        try { onReady(homeWindow?.webContents ?? null); } catch { /* developer tooling only */ }
+      });
       homeWindow.once("ready-to-show", () => {
         reclamp();
+        if (overlay) applyOverlayContract(homeWindow);
         homeWindow?.show();
+        // Focused even while click-through, so WASD still reaches the player.
         homeWindow?.focus();
       });
     }
@@ -334,7 +391,23 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
 
   function reclamp() {
     if (!homeWindow || homeWindow.isDestroyed()) return;
-    homeWindow.setBounds(boundedWindowBounds(getWorkArea(), homeWindow.getBounds()), false);
+    const workArea = getWorkArea();
+    if (currentMode === "desktop") {
+      homeWindow.setBounds(workArea, false);
+      applyOverlayContract(homeWindow);
+      return;
+    }
+    homeWindow.setBounds(boundedWindowBounds(workArea, homeWindow.getBounds()), false);
+  }
+
+  /**
+   * Click-through control for overlay mode: the page reports whether the
+   * pointer is over the house or a pop-out menu, and everything else falls
+   * through to the desktop behind it.
+   */
+  function setInteractive(interactive) {
+    if (!homeWindow || homeWindow.isDestroyed() || currentMode !== "desktop") return;
+    homeWindow.setIgnoreMouseEvents(!interactive, { forward: true });
   }
 
   function owns(webContents) {
@@ -353,5 +426,13 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
     baseUrl = "";
   }
 
-  return { open, close, reclamp, owns, dispose };
+  function webContents() {
+    return homeWindow && !homeWindow.isDestroyed() ? homeWindow.webContents : null;
+  }
+
+  function isOpen() {
+    return Boolean(homeWindow && !homeWindow.isDestroyed());
+  }
+
+  return { open, close, reclamp, owns, dispose, webContents, isOpen, setInteractive, mode: () => currentMode };
 }

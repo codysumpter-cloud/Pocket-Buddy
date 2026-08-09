@@ -49,12 +49,100 @@
     throw new Error("The canonical TinyHouse runtime did not finish starting.");
   }
 
+  // East/west mirror partners. PixelLab exports occasionally author an
+  // animation's directional folders mirrored relative to the pack's rotation
+  // sheet, which makes a character walk facing the wrong way while standing
+  // still looks correct.
+  const MIRRORED_DIRECTION = Object.freeze({
+    east: "west",
+    west: "east",
+    "south-east": "south-west",
+    "south-west": "south-east",
+    "north-east": "north-west",
+    "north-west": "north-east",
+    north: "north",
+    south: "south",
+  });
+
+  const DRESSED_STATE = /wearing|clothed|dressed|outfit|jeans|shirt|hoodie|suit|uniform/i;
+
+  /**
+   * PixelLab packs ship several appearance states. Prefer a dressed state, and
+   * prefer one that actually carries animations — an undressed base with a full
+   * animation set is not a reason to render the character undressed.
+   */
+  function pickState(states) {
+    const animated = states.filter((entry) => Object.keys(entry?.frames?.animations || {}).length > 0);
+    const pool = animated.length ? animated : states;
+    const dressed = pool.find((entry) => DRESSED_STATE.test(`${entry?.folder ?? ""} ${entry?.character?.name ?? ""}`));
+    return dressed || pool[0] || null;
+  }
+
+  /** Alpha silhouette of one frame, used only for mirror detection. */
+  async function silhouette(url) {
+    try {
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("frame failed to load"));
+        image.src = url;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      const mask = new Uint8Array(canvas.width * canvas.height);
+      for (let index = 0; index < mask.length; index += 1) mask[index] = data[index * 4 + 3] > 8 ? 1 : 0;
+      return { width: canvas.width, height: canvas.height, mask };
+    } catch {
+      return null;
+    }
+  }
+
+  function maskDifference(a, b, mirror) {
+    if (a.width !== b.width || a.height !== b.height) return Number.POSITIVE_INFINITY;
+    let total = 0;
+    for (let y = 0; y < a.height; y += 1) {
+      for (let x = 0; x < a.width; x += 1) {
+        const bx = mirror ? a.width - 1 - x : x;
+        total += Math.abs(a.mask[a.width * y + x] - b.mask[b.width * y + bx]);
+      }
+    }
+    return total / (a.width * a.height);
+  }
+
+  /**
+   * Decide whether an animation's directional folders are mirrored against the
+   * pack's own rotation sheet. Verified to report Ani's walk as mirrored (6/6
+   * directions) and the Balinese Cat's as not mirrored (0/6).
+   */
+  async function detectMirroredAnimation(sha, rotations, animation) {
+    if (!animation) return false;
+    let flipped = 0;
+    let compared = 0;
+    for (const direction of ["east", "west"]) {
+      const rotationPath = rotations?.[direction];
+      const framePath = animation?.[direction]?.[0];
+      if (!rotationPath || !framePath) continue;
+      const [rotation, frame] = await Promise.all([
+        silhouette(privateUrl(sha, rotationPath)),
+        silhouette(privateUrl(sha, framePath)),
+      ]);
+      if (!rotation || !frame) continue;
+      compared += 1;
+      if (maskDifference(frame, rotation, true) < maskDifference(frame, rotation, false)) flipped += 1;
+    }
+    return compared > 0 && flipped * 2 > compared;
+  }
+
   async function loadPixelLab(sha, label) {
     if (!SHA256_RE.test(String(sha || ""))) throw new Error(`${label} art hash is missing or invalid.`);
     const response = await fetch(privateUrl(sha, "metadata.json"), { cache: "no-store" });
     if (!response.ok) throw new Error(`${label} metadata could not be read from its verified art pack.`);
     const metadata = await response.json();
-    const state = Array.isArray(metadata?.states) ? metadata.states[0] : null;
+    const state = pickState(Array.isArray(metadata?.states) ? metadata.states : []);
     const size = state?.character?.size;
     const animations = state?.frames?.animations;
     const rotations = state?.frames?.rotations;
@@ -64,33 +152,107 @@
     const names = Object.keys(animations);
     const exact = (name) => names.find((candidate) => candidate.toLowerCase() === name);
     const match = (pattern, exclude = null) => names.find((candidate) => pattern.test(candidate) && (!exclude || !exclude.test(candidate)));
-    const idleName = exact("ani_idle") || match(/idle/i, /battle/i) || names[0];
-    const walkName = exact("ani_walk") || match(/walk/i) || exact("ani_run") || match(/run/i) || idleName;
+    // Combat and injury animations are never a resting or travelling pose. The
+    // old fallback chain ended at names[0], which happily selected the very
+    // `ani_idle_battle` clip the idle filter had just excluded — and its first
+    // frame is nearly empty, so Ani rendered as a few stray pixels.
+    const COMBAT = /battle|death|punch|attack|hurt|fall|roll|jump/i;
+    const idleName = exact("ani_idle")
+      || match(/idle/i, COMBAT)
+      || match(/stand|relax|breath/i, COMBAT)
+      || names.find((candidate) => !COMBAT.test(candidate))
+      // Empty means "use the authored rotation sheet", which is the pack's
+      // canonical standing pose. Better a true still frame than a combat frame.
+      || "";
+    const walkName = exact("ani_walk")
+      || match(/walk/i, COMBAT)
+      || exact("ani_run")
+      || match(/run/i, COMBAT)
+      || idleName;
+    const anchorPath = rotations.south || rotations[Object.keys(rotations)[0]] || null;
+    const anchor = anchorPath
+      ? await measureAnchor(privateUrl(sha, anchorPath), Number(size.width), Number(size.height))
+      : { centerX: Number(size.width) / 2, footY: Number(size.height), topY: 0, measured: false };
+
+    const mirroredAnimations = await detectMirroredAnimation(sha, rotations, animations[walkName]);
+
+    // Animation folders may be mirrored against the rotation sheet; rotations
+    // are the pack's ground truth and are always read unmirrored.
+    const framesFor = (animationName, direction) => {
+      const animation = animations[animationName] || animations[idleName] || {};
+      const key = mirroredAnimations ? (MIRRORED_DIRECTION[direction] || direction) : direction;
+      return animation[key]?.length ? animation[key]
+        : animation.south?.length ? animation.south
+        : animation[Object.keys(animation).find((name) => Array.isArray(animation[name]) && animation[name].length)] || [];
+    };
+
     return {
       sha,
       label,
       width: Number(size.width),
       height: Number(size.height),
+      anchor,
       animations,
       rotations,
       idleName,
       walkName,
+      mirroredAnimations,
+      stateName: state?.character?.name || state?.folder || "",
       framePath(animationName, direction, index) {
-        const animation = animations[animationName] || animations[idleName] || {};
-        const frames = animation[direction]?.length ? animation[direction]
-          : animation.south?.length ? animation.south
-          : animation[Object.keys(animation).find((key) => Array.isArray(animation[key]) && animation[key].length)] || [];
+        const frames = framesFor(animationName, direction);
         if (frames.length) return frames[index % frames.length];
         return rotations[direction] || rotations.south || rotations[Object.keys(rotations)[0]] || null;
       },
       frameCount(animationName, direction) {
-        const animation = animations[animationName] || animations[idleName] || {};
-        const frames = animation[direction]?.length ? animation[direction]
-          : animation.south?.length ? animation.south
-          : animation[Object.keys(animation).find((key) => Array.isArray(animation[key]) && animation[key].length)] || [];
-        return Math.max(1, frames.length);
+        return Math.max(1, framesFor(animationName, direction).length);
       },
     };
+  }
+
+  /**
+   * PixelLab frames pad the character inside a square canvas, and the padding
+   * differs per pack (Ani occupies 17x48 of a 100x100 frame, with 28px of empty
+   * space below her feet). Anchoring the frame's bottom edge to a tile centre
+   * therefore leaves an actor floating above the floor.
+   *
+   * Measure the opaque bounding box of a representative frame once per pack and
+   * anchor on the real feet and the real horizontal centre instead.
+   */
+  async function measureAnchor(url, width, height) {
+    const fallback = { centerX: width / 2, footY: height, topY: 0, measured: false };
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = () => reject(new Error("anchor frame failed to load"));
+        image.src = url;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || width;
+      canvas.height = image.naturalHeight || height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+
+      let minX = canvas.width;
+      let maxX = -1;
+      let minY = canvas.height;
+      let maxY = -1;
+      for (let y = 0; y < canvas.height; y += 1) {
+        for (let x = 0; x < canvas.width; x += 1) {
+          if (data[(canvas.width * y + x) * 4 + 3] <= 8) continue;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+      if (maxY < 0) return fallback;
+      return { centerX: (minX + maxX + 1) / 2, footY: maxY + 1, topY: minY, measured: true };
+    } catch {
+      return fallback;
+    }
   }
 
   function directionFromWorldDelta(dx, dy, fallback = "south") {
@@ -123,6 +285,8 @@
     image.style.cssText = "position:absolute;image-rendering:pixelated;user-select:none;-webkit-user-drag:none;transform-origin:50% 100%;pointer-events:auto;filter:drop-shadow(0 3px 0 rgba(25,19,25,.22));";
     document.querySelector("#item-layer")?.append(image);
     return {
+      id,
+      label: art.label,
       image,
       art,
       scale,
@@ -133,6 +297,14 @@
       lastPath: "",
       target: null,
       targetUntil: 0,
+      // Developer-only animation pin used by Pocket Buddy Studio. Empty in
+      // normal play, where idle/walk is chosen from actual movement.
+      animationOverride: "",
+      // Needs-driven life: what this actor wants, and what it is doing about it.
+      needs: { energy: 0.85, hunger: 0.8, hygiene: 0.85, fun: 0.75, social: 0.8 },
+      plan: null,
+      busyUntil: 0,
+      activity: "",
     };
   }
 
@@ -168,6 +340,95 @@
     return actor.target;
   }
 
+  // ---------------------------------------------------------- needs-driven life
+
+  /** Placed furniture that offers something, with its walkable cell. */
+  function furnitureCandidates(actor) {
+    const affordances = window.PocketBuddyAffordances;
+    const state = window.TinyHousePlayable?.state;
+    const grid = window.TinyHouseStructure?.grid;
+    if (!affordances || !state || !grid) return [];
+
+    const assets = new Map((state.manifest || []).map((asset) => [asset.id, asset]));
+    const candidates = [];
+    for (const placement of state.placements || []) {
+      const asset = assets.get(placement.assetId);
+      if (!asset) continue;
+      const affordance = affordances.affordancesFor(asset)[0];
+      if (!affordance) continue;
+      const cell = { column: Math.round(placement.column), row: Math.round(placement.row) };
+      if (!grid.hasFloor(cell.column, cell.row)) continue;
+      candidates.push({
+        id: placement.id,
+        affordance,
+        cell,
+        label: asset.name || affordance.action,
+        distance: Math.abs(cell.column - actor.cell.column) + Math.abs(cell.row - actor.cell.row),
+      });
+    }
+    return candidates;
+  }
+
+  /**
+   * Decide what an actor wants, walk there through the canonical floor graph,
+   * and let the interaction pay off. Falls back to wandering when nothing is
+   * needed or nothing is reachable, so an empty house still feels alive.
+   */
+  function liveAutonomously(actor, now, dt, speed) {
+    const affordances = window.PocketBuddyAffordances;
+    const pathfinding = window.PocketBuddyPathfinding;
+    const motion = window.PocketBuddyActorMotion;
+    const grid = window.TinyHouseStructure?.grid;
+    if (!affordances || !pathfinding || !motion || !grid) return moveAutonomous(actor, now, dt, speed);
+
+    actor.needs = affordances.decay(actor.needs, dt);
+
+    // Mid-interaction: stay put and take the benefit.
+    if (actor.busyUntil > now && actor.plan?.affordance) {
+      actor.moving = false;
+      actor.needs = affordances.satisfy(actor.needs, actor.plan.affordance, dt);
+      return;
+    }
+    if (actor.busyUntil && actor.busyUntil <= now) {
+      actor.busyUntil = 0;
+      actor.plan = null;
+      actor.activity = "";
+    }
+
+    if (!actor.plan) {
+      const chosen = affordances.chooseAction(furnitureCandidates(actor), actor.needs);
+      const path = chosen ? pathfinding.findPath(grid, actor.cell, chosen.cell) : [];
+      if (chosen && path.length) {
+        actor.plan = { affordance: chosen.affordance, path, label: chosen.label };
+        actor.activity = `${chosen.affordance.action} · ${chosen.label}`;
+      } else {
+        actor.activity = "";
+        return moveAutonomous(actor, now, dt, speed);
+      }
+    }
+
+    actor.plan.path = pathfinding.advancePath(actor.plan.path, actor.cell);
+    const next = actor.plan.path[0];
+    // advancePath always keeps the final waypoint so the actor has something to
+    // steer at, which means an empty path is not how arrival shows up: standing
+    // on the last node is. Without this the actor reached the furniture and
+    // then stood there forever while its needs kept draining.
+    const arrived = !next
+      || (actor.plan.path.length === 1
+        && Math.hypot(next.column - actor.cell.column, next.row - actor.cell.row) <= 0.4);
+    if (arrived) {
+      actor.busyUntil = now + actor.plan.affordance.seconds * 1000;
+      actor.plan.path = [];
+      actor.moving = false;
+      return;
+    }
+
+    const result = motion.moveToward(grid, actor.cell, next, dt, speed, 4);
+    applyMotion(actor, result);
+    // Blocked (a door closed behind us, furniture moved): re-plan next tick.
+    if (!result.moved && !result.reached) actor.plan = null;
+  }
+
   function moveAutonomous(actor, now, dt, speed) {
     if (!actor) return;
     const motion = window.PocketBuddyActorMotion;
@@ -190,18 +451,22 @@
       } else buddy.moving = false;
       return;
     }
-    moveAutonomous(buddy, now, dt, BUDDY_IDLE_SPEED_PX);
+    liveAutonomously(buddy, now, dt, BUDDY_IDLE_SPEED_PX);
   }
 
   function maybeMoveIdleHuman(now, dt) {
     if (!human || mode !== "idle") return;
-    moveAutonomous(human, now, dt, HUMAN_IDLE_SPEED_PX);
+    liveAutonomously(human, now, dt, HUMAN_IDLE_SPEED_PX);
   }
 
   function renderActor(actor, now) {
     if (!actor) return;
+    // TinyHouse re-renders #item-layer with replaceChildren whenever furniture
+    // changes, which detaches the actors. Re-attach instead of leaving the
+    // player and pets permanently invisible with no way to bring them back.
+    if (!actor.image.isConnected) document.querySelector("#item-layer")?.append(actor.image);
     const point = worldPoint(actor.cell);
-    const animation = actor.moving ? actor.art.walkName : actor.art.idleName;
+    const animation = actor.animationOverride || (actor.moving ? actor.art.walkName : actor.art.idleName);
     const count = actor.art.frameCount(animation, actor.direction);
     const index = count <= 1 ? 0 : Math.floor(now / (actor.moving ? 110 : 230)) % count;
     const path = actor.art.framePath(animation, actor.direction, index);
@@ -211,10 +476,13 @@
     }
     const width = Math.round(actor.art.width * actor.scale);
     const height = Math.round(actor.art.height * actor.scale);
+    const anchor = actor.art.anchor;
     actor.image.style.width = `${width}px`;
     actor.image.style.height = `${height}px`;
-    actor.image.style.left = `${Math.round(point.x - width / 2)}px`;
-    actor.image.style.top = `${Math.round(point.y + actor.footOffset - height)}px`;
+    // Anchor the drawn character's own feet and centre to the tile point, not
+    // the padded frame's bottom-left, so actors stand on the floor exactly.
+    actor.image.style.left = `${Math.round(point.x - anchor.centerX * actor.scale)}px`;
+    actor.image.style.top = `${Math.round(point.y + actor.footOffset - anchor.footY * actor.scale)}px`;
     actor.image.style.zIndex = String(1000 + Math.round((point.y + actor.footOffset) * 10 + 8));
   }
 
@@ -224,8 +492,9 @@
     heart.textContent = "♥";
     heart.style.cssText = "position:absolute;z-index:600000;color:#ff5c91;text-shadow:2px 0 #fff,-2px 0 #fff,0 2px #fff,0 -2px #fff;font:bold 24px monospace;pointer-events:none;transition:transform .7s linear,opacity .7s linear;";
     const point = worldPoint(actor.cell);
+    const headHeight = (actor.art.anchor.footY - actor.art.anchor.topY) * actor.scale;
     heart.style.left = `${point.x - 10}px`;
-    heart.style.top = `${point.y - actor.art.height * actor.scale - 10}px`;
+    heart.style.top = `${point.y - headHeight - 10}px`;
     document.querySelector("#item-layer")?.append(heart);
     requestAnimationFrame(() => { heart.style.transform = "translateY(-28px)"; heart.style.opacity = "0"; });
     setTimeout(() => heart.remove(), 750);
@@ -257,6 +526,9 @@
       idle.style.background = mode === "idle" ? "#3f756e" : "#755b58";
     }
     sync();
+    // The panel was fully built and then never inserted, so Home shipped with
+    // no way to switch modes, pet the Buddy, or leave except the Escape key.
+    shell.append(controls);
   }
 
   function installUiScale() {
@@ -265,6 +537,93 @@
     const style = document.createElement("style");
     style.textContent = `#top-hud,.builder-panel,#selection-tools,#camera-tools,#mode-hint,#structure-panel,#blueprint-panel,#rooms-panel,#cozy-panel{zoom:var(--pb-home-ui-scale,1)}`;
     document.head.append(style);
+  }
+
+  // Developer-only inspection surface for Pocket Buddy Studio.
+  //
+  // Only installed when the main process injected `studio: true` into the Home
+  // config, which itself only happens in an unpackaged build or under an
+  // explicit POCKET_BUDDY_STUDIO opt-in. Production Home exposes nothing.
+  function installStudioBridge() {
+    if (!config.studio || window.PocketBuddyHomeStudio) return;
+    const actorFor = (id) => [human, buddy].find((actor) => actor && actor.id === id) || null;
+    const readable = (actor) => (actor ? {
+      id: actor.id,
+      label: actor.label,
+      cell: { ...actor.cell },
+      radius: window.PocketBuddyActorMotion?.DEFAULT_RADIUS ?? 0.1,
+      direction: actor.direction,
+      moving: actor.moving,
+      animation: actor.animationOverride || (actor.moving ? actor.art.walkName : actor.art.idleName),
+      scale: actor.scale,
+      // Surfaced so Studio can show why a character faces the way it does.
+      appearance: actor.art.stateName,
+      needs: { ...actor.needs },
+      activity: actor.activity || "",
+      busy: actor.busyUntil > performance.now(),
+      mirroredAnimations: Boolean(actor.art.mirroredAnimations),
+      frameSrc: actor.lastPath,
+      attached: actor.image.isConnected,
+    } : null);
+
+    window.PocketBuddyHomeStudio = Object.freeze({
+      actors: () => [human, buddy].filter(Boolean).map(readable),
+      actor: (id) => readable(actorFor(id)),
+      mode: () => mode,
+      setMode(next) {
+        if (!["play", "idle"].includes(String(next))) return mode;
+        mode = String(next);
+        if (mode === "idle") keys.clear();
+        if (human) human.target = null;
+        return mode;
+      },
+      buddyName: () => config.buddyName || "Buddy",
+      animationNames: (id) => {
+        const actor = actorFor(id);
+        return actor ? Object.keys(actor.art.animations || {}) : [];
+      },
+      setAnimation(id, animation) {
+        const actor = actorFor(id);
+        if (!actor) return null;
+        const names = Object.keys(actor.art.animations || {});
+        actor.animationOverride = names.includes(String(animation)) ? String(animation) : "";
+        actor.lastPath = "";
+        return readable(actor);
+      },
+      /**
+       * Screen-space nudge routed through the canonical motion core, so walls,
+       * closed doors and floor bounds still apply and the resulting position
+       * stays continuous. Studio must never reintroduce tile snapping.
+       */
+      nudge(id, dx, dy) {
+        const actor = actorFor(id);
+        const magnitude = Math.hypot(Number(dx) || 0, Number(dy) || 0);
+        if (!actor || magnitude <= 0) return readable(actor);
+        // moveScreen clamps dt to 0.05s, so scale speed to land on exact pixels.
+        applyMotion(actor, window.PocketBuddyActorMotion.moveScreen(
+          window.TinyHouseStructure.grid, actor.cell, Number(dx) || 0, Number(dy) || 0, 0.05, magnitude * 20,
+        ));
+        actor.target = null;
+        return readable(actor);
+      },
+    });
+  }
+
+  /**
+   * Minimal always-on view API (distinct from the dev-only studio bridge) so
+   * the overlay shell can point the camera at whoever you are playing.
+   */
+  function installViewApi() {
+    if (window.PocketBuddyHomeView) return;
+    window.PocketBuddyHomeView = Object.freeze({
+      playerPoint() {
+        const actor = human || buddy;
+        if (!actor || !window.TinyHouseStructure?.grid) return null;
+        const point = worldPoint(actor.cell);
+        return { x: point.x, y: point.y, id: actor.id };
+      },
+      hasPlayer: () => Boolean(human || buddy),
+    });
   }
 
   function typingTarget(target) {
@@ -291,6 +650,12 @@
     human = createActor("pb-home-human", humanArt, clamp(Number(config.humanScale) || 1.2, 0.8, 2), startCell(0), HUMAN_FOOT_OFFSET);
     human.image.title = "Ani Iso Human — WASD / arrow keys";
 
+    if (!SHA256_RE.test(String(config.petSha256 || ""))) {
+      // Say so rather than rendering an empty house and letting it read as a
+      // missing feature. No substitute pet is invented.
+      showError("No verified Buddy art pack is active, so Home has no pet. Pick a Buddy from My Pets, then reopen Home.");
+    }
+
     if (SHA256_RE.test(String(config.petSha256 || ""))) {
       try {
         const petArt = await loadPixelLab(String(config.petSha256), config.buddyName || "Buddy");
@@ -308,6 +673,8 @@
 
     installControls();
     installInput();
+    installViewApi();
+    installStudioBridge();
     requestAnimationFrame(loop);
   }
 

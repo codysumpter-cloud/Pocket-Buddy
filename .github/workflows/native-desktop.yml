@@ -44,6 +44,12 @@ jobs:
           node --check desktop/tinyhouse-home/app.js
           node --check desktop/tinyhouse-home/house-grid-core.js
           node --check desktop/tinyhouse-home/house-grid.js
+          node --check desktop/studio/studio-gate.mjs
+          node --check desktop/studio/studio-main.mjs
+          node --check desktop/studio/studio-preload.cjs
+          node --check desktop/studio/studio-scene-core.js
+          node --check desktop/studio/studio-agent.js
+          node --check desktop/studio/studio.js
       - name: Package Windows installer and portable app
         run: npm run package:desktop:win
       - name: Verify Windows artifacts
@@ -86,6 +92,12 @@ jobs:
           node --check desktop/tinyhouse-home/app.js
           node --check desktop/tinyhouse-home/house-grid-core.js
           node --check desktop/tinyhouse-home/house-grid.js
+          node --check desktop/studio/studio-gate.mjs
+          node --check desktop/studio/studio-main.mjs
+          node --check desktop/studio/studio-preload.cjs
+          node --check desktop/studio/studio-scene-core.js
+          node --check desktop/studio/studio-agent.js
+          node --check desktop/studio/studio.js
       - name: Package universal macOS app
         run: npm run package:desktop:mac
       - name: Verify macOS artifacts
