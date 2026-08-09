@@ -4,13 +4,14 @@
   const config = window.POCKET_BUDDY_HOME_CONFIG || {};
   const bridge = window.PocketBuddyHome;
   const SHA256_RE = /^[0-9a-f]{64}$/;
-  const MOVE_MS = 180;
   const HUMAN_FOOT_OFFSET = 18;
   const PET_FOOT_OFFSET = 10;
-  const directionOrder = ["south", "south-east", "east", "north-east", "north", "north-west", "west", "south-west"];
+  const HUMAN_SPEED_PX = 155;
+  const HUMAN_IDLE_SPEED_PX = 92;
+  const BUDDY_SPEED_PX = 112;
+  const BUDDY_IDLE_SPEED_PX = 82;
   const keys = new Set();
   let mode = "play";
-  let lastIdleMove = 0;
   let human = null;
   let buddy = null;
   let lastFrameAt = performance.now();
@@ -18,6 +19,14 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const encodePath = (path) => String(path).split("/").map(encodeURIComponent).join("/");
   const privateUrl = (sha, path) => `/private/${sha}/${encodePath(path)}`;
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    keys.clear();
+    bridge?.close?.();
+  }, true);
 
   function showError(message) {
     let panel = document.querySelector("#pb-home-actor-error");
@@ -27,14 +36,14 @@
       panel.style.cssText = "position:absolute;right:14px;top:82px;z-index:500000;max-width:420px;padding:9px;border:3px solid #45343a;background:#fff0f0;color:#342b2f;box-shadow:4px 4px 0 #17181d;font:11px 'Courier New',monospace;";
       document.querySelector("#game-shell")?.append(panel);
     }
-    panel.textContent = message;
+    panel.textContent = String(message);
   }
 
   async function waitForRuntime(timeoutMs = 20000) {
     if (window.TINYHOUSE_ASSETS_READY) await window.TINYHOUSE_ASSETS_READY;
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
-      if (window.TinyHousePlayable?.cellCenter && window.TinyHouseStructure?.grid) return;
+      if (window.TinyHousePlayable?.cellCenter && window.TinyHouseStructure?.grid && window.PocketBuddyActorMotion?.moveScreen) return;
       await new Promise((resolve) => setTimeout(resolve, 30));
     }
     throw new Error("The canonical TinyHouse runtime did not finish starting.");
@@ -66,12 +75,12 @@
       rotations,
       idleName,
       walkName,
-      framePath(animationName, direction, frameIndex) {
+      framePath(animationName, direction, index) {
         const animation = animations[animationName] || animations[idleName] || {};
         const frames = animation[direction]?.length ? animation[direction]
           : animation.south?.length ? animation.south
           : animation[Object.keys(animation).find((key) => Array.isArray(animation[key]) && animation[key].length)] || [];
-        if (frames.length) return frames[frameIndex % frames.length];
+        if (frames.length) return frames[index % frames.length];
         return rotations[direction] || rotations.south || rotations[Object.keys(rotations)[0]] || null;
       },
       frameCount(animationName, direction) {
@@ -91,7 +100,22 @@
     return ["east", "south-east", "south", "south-west", "west", "north-west", "north", "north-east"][octant] || fallback;
   }
 
-  function createActor(id, art, scale, cell, footOffset) {
+  function floorCells() {
+    return [...window.TinyHouseStructure.grid.floors.values()].map((entry) => ({ column: entry.column, row: entry.row }));
+  }
+
+  function startCell(offset = 0) {
+    const cells = floorCells();
+    if (!cells.length) throw new Error("Home has no floor cells for the player.");
+    cells.sort((a, b) => (a.column + a.row) - (b.column + b.row));
+    return cells[Math.min(cells.length - 1, Math.max(0, Math.floor(cells.length / 2) + offset))] || cells[0];
+  }
+
+  function worldPoint(position) {
+    return window.PocketBuddyActorMotion.worldPoint(position, window.TinyHouseStructure.grid);
+  }
+
+  function createActor(id, art, scale, position, footOffset) {
     const image = document.createElement("img");
     image.id = id;
     image.alt = art.label;
@@ -102,140 +126,81 @@
       image,
       art,
       scale,
-      cell: { ...cell },
-      from: { ...cell },
-      to: { ...cell },
+      cell: { ...position },
       moving: false,
-      moveStartedAt: 0,
       direction: "south",
-      animation: art.idleName,
       footOffset,
-      frame: -1,
       lastPath: "",
+      target: null,
+      targetUntil: 0,
     };
   }
 
-  function floorCells() {
-    const grid = window.TinyHouseStructure.grid;
-    return [...grid.floors.values()].map((entry) => ({ column: entry.column, row: entry.row }));
-  }
-
-  function startCell(index = 0) {
-    const cells = floorCells();
-    if (!cells.length) throw new Error("Home has no floor cells for the player.");
-    cells.sort((a, b) => (a.column + a.row) - (b.column + b.row));
-    return cells[Math.min(cells.length - 1, Math.max(0, Math.floor(cells.length / 2) + index))] || cells[0];
-  }
-
-  function worldPoint(cell) {
-    return window.TinyHousePlayable.cellCenter(cell.column, cell.row);
-  }
-
-  function canStep(from, to) {
-    const dc = to.column - from.column;
-    const dr = to.row - from.row;
-    const grid = window.TinyHouseStructure;
-    if (Math.abs(dc) + Math.abs(dr) === 1) return grid.canTraverse(from, to);
-    if (Math.abs(dc) === 1 && Math.abs(dr) === 1) {
-      const viaColumn = { column: from.column + dc, row: from.row };
-      const viaRow = { column: from.column, row: from.row + dr };
-      return (grid.canTraverse(from, viaColumn) && grid.canTraverse(viaColumn, to))
-        || (grid.canTraverse(from, viaRow) && grid.canTraverse(viaRow, to));
-    }
-    return false;
-  }
-
-  function startMove(actor, target, now = performance.now()) {
-    if (!actor || actor.moving || !canStep(actor.cell, target)) return false;
-    actor.from = { ...actor.cell };
-    actor.to = { ...target };
-    const fromPoint = worldPoint(actor.from);
-    const toPoint = worldPoint(actor.to);
-    actor.direction = directionFromWorldDelta(toPoint.x - fromPoint.x, toPoint.y - fromPoint.y, actor.direction);
-    actor.animation = actor.art.walkName;
-    actor.moveStartedAt = now;
-    actor.moving = true;
-    return true;
-  }
-
-  function desiredHumanDelta() {
+  function desiredHumanVector() {
     const up = keys.has("w") || keys.has("arrowup");
     const down = keys.has("s") || keys.has("arrowdown");
     const left = keys.has("a") || keys.has("arrowleft");
     const right = keys.has("d") || keys.has("arrowright");
-    return { column: (right ? 1 : 0) - (left ? 1 : 0), row: (down ? 1 : 0) - (up ? 1 : 0) };
+    return { x: (right ? 1 : 0) - (left ? 1 : 0), y: (down ? 1 : 0) - (up ? 1 : 0) };
   }
 
-  function maybeMoveHuman(now) {
-    if (!human || human.moving || mode !== "play") return;
-    const delta = desiredHumanDelta();
-    if (!delta.column && !delta.row) return;
-    startMove(human, { column: human.cell.column + delta.column, row: human.cell.row + delta.row }, now);
+  function applyMotion(actor, result) {
+    actor.cell = { ...result.position };
+    actor.moving = Boolean(result.moved);
+    if (result.moved) actor.direction = directionFromWorldDelta(result.dx, result.dy, actor.direction);
   }
 
-  function validNeighbors(cell) {
-    const candidates = [
-      { column: cell.column + 1, row: cell.row },
-      { column: cell.column - 1, row: cell.row },
-      { column: cell.column, row: cell.row + 1 },
-      { column: cell.column, row: cell.row - 1 },
-    ];
-    return candidates.filter((candidate) => canStep(cell, candidate));
+  function maybeMoveHuman(dt) {
+    if (!human) return;
+    if (mode !== "play") { human.moving = false; return; }
+    const vector = desiredHumanVector();
+    if (!vector.x && !vector.y) { human.moving = false; return; }
+    applyMotion(human, window.PocketBuddyActorMotion.moveScreen(window.TinyHouseStructure.grid, human.cell, vector.x, vector.y, dt, HUMAN_SPEED_PX));
   }
 
-  function maybeMoveBuddy(now) {
-    if (!buddy || buddy.moving) return;
-    const neighbors = validNeighbors(buddy.cell);
-    if (!neighbors.length) return;
-    let target = null;
+  function ensureWanderTarget(actor, now) {
+    const motion = window.PocketBuddyActorMotion;
+    const grid = window.TinyHouseStructure.grid;
+    if (!actor.target || motion.distancePx(grid, actor.cell, actor.target) <= 7 || now >= actor.targetUntil) {
+      actor.target = motion.randomFloorPoint(grid);
+      actor.targetUntil = now + 900 + Math.random() * 1900;
+    }
+    return actor.target;
+  }
+
+  function moveAutonomous(actor, now, dt, speed) {
+    if (!actor) return;
+    const motion = window.PocketBuddyActorMotion;
+    const grid = window.TinyHouseStructure.grid;
+    const target = ensureWanderTarget(actor, now);
+    if (!target) { actor.moving = false; return; }
+    const result = motion.moveToward(grid, actor.cell, target, dt, speed, 6);
+    applyMotion(actor, result);
+    if (!result.moved && !result.reached) { actor.target = null; actor.targetUntil = 0; }
+  }
+
+  function maybeMoveBuddy(now, dt) {
+    if (!buddy) return;
+    const motion = window.PocketBuddyActorMotion;
+    const grid = window.TinyHouseStructure.grid;
     if (mode === "play" && human) {
-      const distance = Math.abs(human.cell.column - buddy.cell.column) + Math.abs(human.cell.row - buddy.cell.row);
-      if (distance > 1) {
-        target = [...neighbors].sort((a, b) => {
-          const da = Math.abs(human.cell.column - a.column) + Math.abs(human.cell.row - a.row);
-          const db = Math.abs(human.cell.column - b.column) + Math.abs(human.cell.row - b.row);
-          return da - db;
-        })[0];
-      }
+      buddy.target = null;
+      if (motion.distancePx(grid, buddy.cell, human.cell) > 72) {
+        applyMotion(buddy, motion.moveToward(grid, buddy.cell, human.cell, dt, BUDDY_SPEED_PX, 62));
+      } else buddy.moving = false;
+      return;
     }
-    if (!target && mode === "idle" && now - lastIdleMove > 850) {
-      target = neighbors[Math.floor(Math.random() * neighbors.length)];
-      lastIdleMove = now;
-    }
-    if (target) startMove(buddy, target, now);
+    moveAutonomous(buddy, now, dt, BUDDY_IDLE_SPEED_PX);
   }
 
-  function maybeMoveIdleHuman(now) {
-    if (!human || human.moving || mode !== "idle" || now - lastIdleMove < 850) return;
-    const neighbors = validNeighbors(human.cell);
-    if (!neighbors.length) return;
-    startMove(human, neighbors[Math.floor(Math.random() * neighbors.length)], now);
-    lastIdleMove = now;
-  }
-
-  function actorPosition(actor, now) {
-    let cell = actor.cell;
-    let amount = 0;
-    if (actor.moving) {
-      amount = clamp((now - actor.moveStartedAt) / MOVE_MS, 0, 1);
-      const smooth = amount * amount * (3 - 2 * amount);
-      const from = worldPoint(actor.from);
-      const to = worldPoint(actor.to);
-      if (amount >= 1) {
-        actor.cell = { ...actor.to };
-        actor.moving = false;
-        actor.animation = actor.art.idleName;
-        cell = actor.cell;
-        return { ...worldPoint(cell), moving: false };
-      }
-      return { x: from.x + (to.x - from.x) * smooth, y: from.y + (to.y - from.y) * smooth, moving: true };
-    }
-    return { ...worldPoint(cell), moving: false };
+  function maybeMoveIdleHuman(now, dt) {
+    if (!human || mode !== "idle") return;
+    moveAutonomous(human, now, dt, HUMAN_IDLE_SPEED_PX);
   }
 
   function renderActor(actor, now) {
     if (!actor) return;
-    const point = actorPosition(actor, now);
+    const point = worldPoint(actor.cell);
     const animation = actor.moving ? actor.art.walkName : actor.art.idleName;
     const count = actor.art.frameCount(animation, actor.direction);
     const index = count <= 1 ? 0 : Math.floor(now / (actor.moving ? 110 : 230)) % count;
@@ -280,7 +245,7 @@
       controls.append(button);
       return button;
     };
-    const play = make("PLAY", () => { mode = "play"; sync(); });
+    const play = make("PLAY", () => { mode = "play"; human && (human.target = null); sync(); });
     const idle = make("IDLE", () => { mode = "idle"; keys.clear(); sync(); });
     make("PET", () => { void bridge?.care?.("pet"); heartAt(buddy); });
     make("LEAVE HOME", () => bridge?.close?.());
@@ -320,15 +285,13 @@
     installUiScale();
     await waitForRuntime();
     const humanArt = await loadPixelLab(String(config.humanSha256 || ""), "Ani Iso Human");
-    const humanCell = startCell(0);
-    human = createActor("pb-home-human", humanArt, clamp(Number(config.humanScale) || 1.2, 0.8, 2), humanCell, HUMAN_FOOT_OFFSET);
+    human = createActor("pb-home-human", humanArt, clamp(Number(config.humanScale) || 1.2, 0.8, 2), startCell(0), HUMAN_FOOT_OFFSET);
     human.image.title = "Ani Iso Human — WASD / arrow keys";
 
     if (SHA256_RE.test(String(config.petSha256 || ""))) {
       try {
         const petArt = await loadPixelLab(String(config.petSha256), config.buddyName || "Buddy");
-        const petCell = startCell(1);
-        buddy = createActor("pb-home-buddy", petArt, clamp(Number(config.petScale) || 1, 0.25, 8), petCell, PET_FOOT_OFFSET);
+        buddy = createActor("pb-home-buddy", petArt, clamp(Number(config.petScale) || 1, 0.25, 8), startCell(1), PET_FOOT_OFFSET);
         buddy.image.title = `${config.buddyName || "Buddy"} — click to pet`;
         buddy.image.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -346,12 +309,11 @@
   }
 
   function loop(now) {
-    const dt = Math.min(50, now - lastFrameAt);
+    const dt = Math.min(0.05, Math.max(0, (now - lastFrameAt) / 1000));
     lastFrameAt = now;
-    void dt;
-    maybeMoveHuman(now);
-    maybeMoveIdleHuman(now);
-    maybeMoveBuddy(now);
+    maybeMoveHuman(dt);
+    maybeMoveBuddy(now, dt);
+    maybeMoveIdleHuman(now, dt);
     renderActor(human, now);
     renderActor(buddy, now);
     requestAnimationFrame(loop);
