@@ -130,8 +130,8 @@ export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose 
 
       const bridge = window.PocketBuddyDesktop;
       if (bridge?.openHome) {
-        const active = petRuntime.activePack();
-        const petSha256 = cleanHash(active?.archiveSha256);
+        const active = await petLibrary.loadRuntime(await petLibrary.activeId());
+        const petSha256 = cleanHash(active?.pack?.archiveSha256);
         const result = await bridge.openHome({
           humanSha256,
           petSha256,

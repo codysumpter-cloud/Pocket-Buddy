@@ -150,6 +150,8 @@
     if (!buddy) return;
     if (command === "home") void buddy.home?.open?.().catch((error) => showPrivateArtError(error));
     else if (command === "pets") buddy.showPets?.();
+    else if (command === "chill-human") void buddy.setChillActor?.("human");
+    else if (command === "chill-pet") void buddy.setChillActor?.("pet");
     else if (command === "care") buddy.showCare?.();
     else if (command === "talk") buddy.showTalk?.();
     setTimeout(() => setInteractive(true), 0);
@@ -237,6 +239,7 @@
       }
 
       await buddy.home?.reloadHuman?.();
+      await buddy.restoreChillActor?.();
       setPrivateArtStatus({
         state: "ready",
         total: entries.length,

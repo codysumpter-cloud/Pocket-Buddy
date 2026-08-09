@@ -4,8 +4,8 @@
   const config = window.POCKET_BUDDY_HOME_CONFIG || {};
   const bridge = window.PocketBuddyHome;
   const SHA256_RE = /^[0-9a-f]{64}$/;
-  const HUMAN_FOOT_OFFSET = 18;
-  const PET_FOOT_OFFSET = 10;
+  const HUMAN_FOOT_OFFSET = 0;
+  const PET_FOOT_OFFSET = 0;
   const HUMAN_SPEED_PX = 155;
   const HUMAN_IDLE_SPEED_PX = 92;
   const BUDDY_SPEED_PX = 112;
@@ -245,10 +245,13 @@
       controls.append(button);
       return button;
     };
-    const play = make("PLAY", () => { mode = "play"; human && (human.target = null); sync(); });
-    const idle = make("IDLE", () => { mode = "idle"; keys.clear(); sync(); });
+    const play = make("CONTROL HUMAN · WASD", () => { mode = "play"; human && (human.target = null); sync(); });
+    const idle = make("HOUSE CHILL", () => { mode = "idle"; keys.clear(); sync(); });
     make("PET", () => { void bridge?.care?.("pet"); heartAt(buddy); });
+    make("DESKTOP HUMAN", () => bridge?.chill?.("human"));
+    make("DESKTOP PET", () => bridge?.chill?.("pet"));
     make("LEAVE HOME", () => bridge?.close?.());
+    make("QUIT GAME", () => bridge?.quit?.());
     function sync() {
       play.style.background = mode === "play" ? "#3f756e" : "#755b58";
       idle.style.background = mode === "idle" ? "#3f756e" : "#755b58";

@@ -11,4 +11,12 @@ contextBridge.exposeInMainWorld("PocketBuddyHome", {
   close() {
     ipcRenderer.send("pocket-buddy:home-close");
   },
+  chill(actor) {
+    const value = String(actor ?? "");
+    if (!["human", "pet"].includes(value)) return;
+    ipcRenderer.send("pocket-buddy:home-chill", value);
+  },
+  quit() {
+    ipcRenderer.send("pocket-buddy:home-quit");
+  },
 });

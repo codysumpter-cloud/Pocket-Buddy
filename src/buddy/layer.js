@@ -372,9 +372,49 @@ export async function initializeBuddyLayer() {
   async function selectPet(id) {
     await library.setActive(id);
     await runtime.select(id);
+    await storage.setJson("chillActor", "pet");
     const pack = id === "pocket-bird" ? null : (await library.listInstalled()).find((item) => item.id === id) ?? null;
     await themes.setActiveBuddy(id, pack);
     toast(root, id === "pocket-bird" ? "Pocket Buddy pet active" : `${pack?.displayName ?? "Buddy"} active`);
+  }
+
+  async function setChillActor(kind) {
+    if (kind === "human") {
+      const humanId = await library.homeHumanId();
+      if (!humanId) {
+        toast(root, "Import or install a PixelLab human first.");
+        return false;
+      }
+      await runtime.select(humanId);
+      await storage.setJson("chillActor", "human");
+      toast(root, "Human is chilling on the desktop");
+      return true;
+    }
+    await runtime.select(await library.activeId());
+    await storage.setJson("chillActor", "pet");
+    toast(root, "Pet is chilling on the desktop");
+    return true;
+  }
+
+  async function restoreChillActor() {
+    const preferred = await storage.getJson("chillActor", "pet");
+    if (preferred === "human" && await library.homeHumanId()) return setChillActor("human");
+    return setChillActor("pet");
+  }
+
+  function showChill() {
+    closeBaseMenu(root);
+    const { c } = windowBox(root, "pb-chill", "Chill Mode");
+    const intro = document.createElement("div");
+    intro.textContent = "Choose who hangs out on your desktop. Home still uses the human as your player and your selected pet as their companion.";
+    const row = document.createElement("div");
+    row.className = "pb-row";
+    row.append(
+      btn("Human", () => setChillActor("human").then(() => root.getElementById("pb-chill")?.remove())),
+      btn("Pet", () => setChillActor("pet").then(() => root.getElementById("pb-chill")?.remove())),
+      btn("Go Home", () => { root.getElementById("pb-chill")?.remove(); void home.open(); }),
+    );
+    c.append(intro, row);
   }
 
   async function installCatalogPet(entry, refresh) {
@@ -588,18 +628,37 @@ export async function initializeBuddyLayer() {
       void brain.care("pet").then((result) => toast(root, result.message));
     });
 
+    let settingsItem = null;
+    let hideItem = null;
     for (const item of originalItems.slice(1)) {
       const label = item.textContent?.trim() ?? "";
-      if (/^Hide (Bird|Birb)$/i.test(label)) item.textContent = "Hide Buddy";
-      if (/^Adopt A /i.test(label)) item.remove();
+      if (label === "Settings") settingsItem = item;
+      if (/^Hide (Bird|Birb)$/i.test(label)) {
+        item.textContent = "Hide Buddy";
+        hideItem = item;
+      }
     }
 
-    const buddyItem = menuItem("Buddy", () => {});
     const homeItem = menuItem("Home", () => {
       closeBaseMenu(root);
       void home.open();
     });
-    first.after(buddyItem, homeItem);
+    const buddyItem = menuItem("Buddy", () => {});
+    const chillItem = menuItem("Chill Mode", () => showChill());
+    const myPetsItem = menuItem("My Pets", () => {
+      closeBaseMenu(root);
+      const { c } = windowBox(root, "pb-my-pets", "My Pets");
+      void renderMyPets(c);
+    });
+    const quitItem = window.PocketBuddyDesktop?.quit
+      ? menuItem("Quit Pocket Buddy", () => {
+          closeBaseMenu(root);
+          window.PocketBuddyDesktop.quit();
+        })
+      : null;
+
+    const leanRoot = [first, homeItem, chillItem, buddyItem, myPetsItem, menuSeparator(), settingsItem, hideItem, quitItem].filter(Boolean);
+    content.replaceChildren(...leanRoot);
     const rootNodes = [...content.childNodes];
     buddyItem.onclick = () => showBuddySubmenu(menu, rootNodes);
   }
@@ -644,6 +703,9 @@ export async function initializeBuddyLayer() {
     showCare,
     showStatus,
     showThemes,
+    showChill,
+    setChillActor,
+    restoreChillActor,
     care,
     openPetsCatalog,
   };

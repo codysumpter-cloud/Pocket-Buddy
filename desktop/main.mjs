@@ -193,7 +193,9 @@ function refreshTrayMenu() {
     } },
     { type: "separator" },
     { label: "Home", click: () => sendCommand("home") },
-    { label: "Buddies & Field Guide", click: () => sendCommand("pets") },
+    { label: "Chill: Human", click: () => sendCommand("chill-human") },
+    { label: "Chill: Pet", click: () => sendCommand("chill-pet") },
+    { label: "My Pets", click: () => sendCommand("pets") },
     { label: "Care", click: () => sendCommand("care") },
     { label: "Talk", click: () => sendCommand("talk") },
     { label: "Monitor", submenu: monitorTrayItems() },
@@ -330,7 +332,8 @@ ipcMain.on("pocket-buddy:set-interactive", (event, interactive) => {
   window.setIgnoreMouseEvents(!Boolean(interactive), { forward: true });
 });
 
-ipcMain.on("pocket-buddy:quit", () => {
+ipcMain.on("pocket-buddy:quit", (event) => {
+  if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) return;
   quitting = true;
   app.quit();
 });
@@ -358,6 +361,18 @@ ipcMain.on("pocket-buddy:home-care", (event, action) => {
   const value = String(action ?? "");
   if (!allowed.has(value)) return;
   overlayWindow?.webContents.send("pocket-buddy:home-care", value);
+});
+ipcMain.on("pocket-buddy:home-chill", (event, actor) => {
+  if (!canonicalHome?.owns(event.sender)) return;
+  const value = String(actor ?? "");
+  if (!["human", "pet"].includes(value)) return;
+  canonicalHome.close();
+  sendCommand(`chill-${value}`);
+});
+ipcMain.on("pocket-buddy:home-quit", (event) => {
+  if (!canonicalHome?.owns(event.sender)) return;
+  quitting = true;
+  app.quit();
 });
 
 app.whenReady().then(async () => {

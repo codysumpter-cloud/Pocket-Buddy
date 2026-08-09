@@ -7,9 +7,16 @@ const source = readFileSync(new URL("../src/buddy/layer.js", import.meta.url), "
 test("Pocket Buddy keeps the pet menu compact", () => {
   assert.match(source, /menuItem\("Buddy"/);
   assert.match(source, /menuItem\("Home"/);
+  assert.match(source, /menuItem\("My Pets"/);
+  assert.match(source, /menuItem\("Chill Mode"/);
+  assert.match(source, /menuItem\("Quit Pocket Buddy"/);
+  assert.match(source, /window\.PocketBuddyDesktop\?\.quit/);
+  assert.match(source, /window\.PocketBuddyDesktop\.quit\(\)/);
   assert.match(source, /first\.textContent = "Pet Buddy"/);
   assert.match(source, /item\.textContent = "Hide Buddy"/);
   assert.match(source, /showBuddySubmenu/);
+  assert.match(source, /const leanRoot = \[first, homeItem, chillItem, buddyItem, myPetsItem, menuSeparator\(\), settingsItem, hideItem, quitItem\]/);
+  assert.match(source, /content\.replaceChildren\(\.\.\.leanRoot\)/);
   assert.doesNotMatch(source, /menuItem\("Buddies"/);
   assert.doesNotMatch(source, /"pb-pets"/);
 });
