@@ -5,72 +5,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  repair-home-close-handshake:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/home-free-movement-presence'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/home-free-movement-presence
-          fetch-depth: 0
-      - name: Wire native window close back to the overlay
-        shell: python
-        run: |
-          from pathlib import Path
-
-          canonical = Path('desktop/canonical-home.mjs')
-          text = canonical.read_text(encoding='utf-8')
-          old = 'export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes }) {'
-          new = 'export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes, onClosed = () => {} }) {'
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif new not in text:
-              raise SystemExit('canonical Home manager signature marker missing')
-          old = '      homeWindow.on("closed", () => { homeWindow = null; });'
-          new = '      homeWindow.on("closed", () => { homeWindow = null; onClosed(); });'
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif new not in text:
-              raise SystemExit('canonical Home closed marker missing')
-          canonical.write_text(text, encoding='utf-8')
-
-          main = Path('desktop/main.mjs')
-          text = main.read_text(encoding='utf-8')
-          old = '    readArtBytes: readBundledArt,\n  });'
-          new = '    readArtBytes: readBundledArt,\n    onClosed: () => overlayWindow?.webContents.send("pocket-buddy:home-closed"),\n  });'
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif new not in text:
-              raise SystemExit('desktop main canonical Home marker missing')
-          main.write_text(text, encoding='utf-8')
-
-          preload = Path('desktop/home-preload.cjs')
-          text = preload.read_text(encoding='utf-8')
-          marker = 'const { contextBridge, ipcRenderer } = require("electron");\n'
-          notice = 'window.addEventListener("beforeunload", () => ipcRenderer.send("pocket-buddy:home-exiting"), { once: true });\n'
-          if notice not in text:
-              text = text.replace(marker, marker + '\n' + notice, 1)
-          preload.write_text(text, encoding='utf-8')
-
-          obsolete = Path('.github/workflows/patch-free-home-motion.yml')
-          if obsolete.exists(): obsolete.unlink()
-      - name: Validate handshake syntax
-        run: |
-          node --check desktop/main.mjs
-          node --check desktop/canonical-home.mjs
-          node --check desktop/home-preload.cjs
-      - name: Commit handshake if needed
-        run: |
-          if git diff --quiet; then exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add desktop/main.mjs desktop/canonical-home.mjs desktop/home-preload.cjs .github/workflows/patch-free-home-motion.yml
-          git commit -m "fix(home): restore Buddy after native Home closes"
-          git push origin HEAD:fix/home-free-movement-presence
-
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -95,9 +32,13 @@ jobs:
           node --check src/buddy/theme.js
           node --check src/buddy/layer.js
           node --check src/platforms/obsidian/wrapper.js
+          node --check desktop/main.mjs
+          node --check desktop/preload.cjs
+          node --check desktop/home-preload.cjs
+          node --check desktop/canonical-home.mjs
+          node --check desktop/pocket-buddy-home-actors.js
           node --check desktop/tinyhouse-home/actor-motion-core.js
           node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
-          node --check desktop/pocket-buddy-home-actors.js
           node --check scripts/postprocess-build.mjs
       - name: Build every Pocket Buddy delivery format
         run: npm run build
