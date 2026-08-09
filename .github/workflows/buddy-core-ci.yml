@@ -31,6 +31,8 @@ jobs:
           node --check src/buddy/home.js
           node --check src/buddy/theme.js
           node --check src/buddy/layer.js
+          node --check src/platforms/obsidian/wrapper.js
+          node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
           node --check scripts/postprocess-build.mjs
       - name: Build every Pocket Buddy delivery format
         run: npm run build
@@ -51,9 +53,11 @@ jobs:
           grep -q 'PocketBuddy' dist/obsidian/main.js
           grep -q "Pocket Buddy ${VERSION}" dist/web/birb.embed.js
           grep -q 'Auto (Follow Buddy)' dist/web/birb.embed.js
+          grep -q 'POCKET_BUDDY_WEB_HOME_URL' dist/web/birb.embed.js
           ! grep -q '__POCKET_BUDDY_VERSION__' dist/web/birb.embed.js
           grep -q 'github.com/codysumpter-cloud/Pocket-Buddy' dist/web/birb.embed.js
           ! grep -q 'github.com/IdreesInc/Pocket-Bird' dist/web/birb.embed.js
+          ! grep -q 'Loading Pocket Bird version' dist/obsidian/main.js
           node -e "const m=require('./dist/extension/manifest.json'); if(m.name!=='Pocket Buddy'||m.version!==process.argv[1]) process.exit(1)" "$VERSION"
           node -e "const m=require('./dist/obsidian/manifest.json'); if(m.name!=='Pocket Buddy'||m.version!==process.argv[1]) process.exit(1)" "$VERSION"
       - name: Verify tracked deterministic dist matches source
