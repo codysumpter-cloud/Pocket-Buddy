@@ -31,11 +31,18 @@ jobs:
           cache: npm
       - name: Install locked desktop dependencies
         run: npm ci
-      - name: Syntax check desktop shell
+      - name: Syntax check desktop shell and canonical Home
         run: |
           node --check desktop/main.mjs
           node --check desktop/preload.cjs
           node --check desktop/renderer.js
+          node --check desktop/canonical-home.mjs
+          node --check desktop/home-preload.cjs
+          node --check desktop/pocket-buddy-home-actors.js
+          node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
+          node --check desktop/tinyhouse-home/app.js
+          node --check desktop/tinyhouse-home/house-grid-core.js
+          node --check desktop/tinyhouse-home/house-grid.js
       - name: Package Windows installer and portable app
         run: npm run package:desktop:win
       - name: Verify Windows artifacts
@@ -65,11 +72,18 @@ jobs:
           cache: npm
       - name: Install locked desktop dependencies
         run: npm ci
-      - name: Syntax check desktop shell
+      - name: Syntax check desktop shell and canonical Home
         run: |
           node --check desktop/main.mjs
           node --check desktop/preload.cjs
           node --check desktop/renderer.js
+          node --check desktop/canonical-home.mjs
+          node --check desktop/home-preload.cjs
+          node --check desktop/pocket-buddy-home-actors.js
+          node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
+          node --check desktop/tinyhouse-home/app.js
+          node --check desktop/tinyhouse-home/house-grid-core.js
+          node --check desktop/tinyhouse-home/house-grid.js
       - name: Package universal macOS app
         run: npm run package:desktop:mac
       - name: Verify macOS artifacts

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Pocket Buddy+ TinyHouse Local Game</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="cozy.css" />
+  <link rel="stylesheet" href="house-grid.css" />
+  <link rel="stylesheet" href="room-templates.css" />
+</head>
+<body>
+  <main id="app" aria-label="TinyHouse playable room builder">
+    <div id="game-shell">
+      <div id="world-viewport" tabindex="0" aria-label="Interactive isometric house grid">
+        <div id="world-stage">
+          <div id="floor-layer" class="world-layer"></div>
+          <div id="wall-layer" class="world-layer"></div>
+          <div id="item-layer" class="world-layer"></div>
+          <div id="placement-ghost" hidden></div>
+        </div>
+
+        <header id="top-hud" class="pixel-frame" aria-label="Room controls">
+          <div id="brand" aria-label="Pocket Buddy TinyHouse builder">
+            <span class="brand-mark" aria-hidden="true">⌂</span>
+            <span class="brand-copy"><b>TINYHOUSE</b><small>POCKET BUDDY+ HOUSE BUILDER</small></span>
+          </div>
+          <div id="window-buttons" class="command-row">
+            <button id="save-room" class="command primary" title="Save house (Ctrl/Cmd+S)"><span>▣</span>SAVE</button>
+            <button id="load-room" class="command" title="Load house (Ctrl/Cmd+L)"><span>↥</span>LOAD</button>
+            <button id="export-room" class="command" title="Export room image"><span>◉</span>EXPORT</button>
+            <button id="clear-room" class="command danger" title="Clear placed items"><span>×</span>CLEAR</button>
+            <button id="reset-room" class="command" title="Reset house"><span>↶</span>RESET</button>
+          </div>
+        </header>
+
+        <aside id="catalog" class="builder-panel pixel-frame" aria-label="Asset catalog">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">BUILD MODE</span>
+              <h1>Asset Library</h1>
+            </div>
+            <span id="catalog-count" class="count-chip">0 ITEMS</span>
+          </div>
+          <p id="asset-pack-summary" class="pack-summary">Select your licensed TinyHouse folder to begin.</p>
+          <label class="search-field">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search furniture, decor…" aria-label="Search assets" />
+          </label>
+          <nav id="tabs" class="category-tabs" aria-label="Asset categories"></nav>
+          <div id="asset-grid" class="asset-grid" aria-live="polite"></div>
+          <div class="pager" aria-label="Asset pages">
+            <button id="prev-page" aria-label="Previous page">◀</button>
+            <span id="page-label">1 / 1</span>
+            <button id="next-page" aria-label="Next page">▶</button>
+          </div>
+        </aside>
+
+        <section id="selection-tools" class="inspector-panel pixel-frame" hidden aria-label="Selected object controls">
+          <div class="inspector-heading">
+            <span class="panel-kicker">SELECTED OBJECT</span>
+            <h2 id="selection-name">Nothing selected</h2>
+            <p id="selection-meta">Choose an object in the house.</p>
+          </div>
+          <div class="tool-grid">
+            <button data-action="activate" data-label="INTERACT" title="Play animation / interact (Enter)">▶</button>
+            <button data-action="rotate" data-label="ROTATE" title="Rotate through available authored directions (R)">⟳</button>
+            <button data-action="layer-down" data-label="BEHIND" title="Move behind">↓</button>
+            <button data-action="layer-up" data-label="FRONT" title="Move in front">↑</button>
+            <button data-action="duplicate" data-label="COPY" title="Duplicate">⧉</button>
+            <button data-action="delete" data-label="DELETE" class="danger" title="Delete">⌫</button>
+          </div>
+          <div class="inspector-tip">Drag to move · R rotates · double-click interacts</div>
+        </section>
+
+        <div id="camera-tools" class="camera-dock pixel-frame">
+          <div class="camera-buttons">
+            <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+            <button id="center-view" title="Fit house" aria-label="Fit house">✥</button>
+            <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+          </div>
+          <div class="space-hint"><kbd>SPACE</kbd><span>DRAG EMPTY SPACE · WHEEL/PINCH TO ZOOM</span></div>
+        </div>
+
+        <div id="mode-hint" class="mode-hint pixel-frame">
+          <b>PLACE</b><span>Use Structure to alter the house, or choose an asset and click a floor/table/wall.</span>
+          <kbd>B</kbd><span>Toggle structure tools</span>
+        </div>
+
+        <div id="toast" role="status" aria-live="polite"></div>
+        <pre id="selftest-report" hidden></pre>
+      </div>
+    </div>
+  </main>
+  <script src="manifest.js"></script>
+  <script src="generated-recipes.js"></script>
+  <script src="local-assets.js"></script>
+  <script src="app.js"></script>
+  <script src="drag-core.js"></script>
+  <script src="wall-core.js"></script>
+  <script src="drag-pointer-lock.js"></script>
+  <script src="wall-mount.js"></script>
+  <script src="house-grid-core.js"></script>
+  <script src="house-grid-blueprint-core.js"></script>
+  <script src="room-templates-core.js"></script>
+  <script src="rotation-core.js"></script>
+  <script src="house-grid.js"></script>
+  <script src="house-grid-render.js"></script>
+  <script src="house-grid-editor.js"></script>
+  <script src="house-grid-blueprint.js"></script>
+  <script src="room-templates.js"></script>
+  <script src="four-way-rotation.js"></script>
+  <script src="diorama-camera.js"></script>
+  <script src="cozy-core.js"></script>
+  <script src="cozy.js"></script>
+  <script src="pocket-buddy-web-actors.js"></script>
+</body>
+</html>

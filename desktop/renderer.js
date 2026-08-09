@@ -24,7 +24,7 @@
   function isInteractiveElement(element) {
     if (!(element instanceof Element)) return false;
     if (element.id === "birb" || element.id === "pocket-buddy-custom-pet") return true;
-    if (element.closest("#birb-menu, #birb-field-guide, .birb-window, .pb-window, .pb-home, .pb-toast, .pb-private-art-error")) return true;
+    if (element.closest("#birb-menu, #birb-field-guide, .birb-window, .pb-window, .pb-toast, .pb-private-art-error")) return true;
     if (element.matches("button, input, select, textarea, a, [role='button']")) return true;
     const cursor = getComputedStyle(element).cursor;
     return cursor === "pointer" || cursor === "grab" || cursor === "grabbing";
@@ -33,7 +33,6 @@
   function pointerIsInteractive(clientX, clientY) {
     const root = findShadowRoot();
     if (!root) return false;
-    if (root.querySelector(".pb-home")) return true;
     const elements = root.elementsFromPoint?.(clientX, clientY) ?? [];
     return elements.some(isInteractiveElement);
   }
@@ -141,10 +140,15 @@
     }
   }, 50);
 
+  bridge.onHomeCare((action) => {
+    const buddy = window.PocketBuddy;
+    if (buddy?.care) void buddy.care(action);
+  });
+
   bridge.onCommand((command) => {
     const buddy = window.PocketBuddy;
     if (!buddy) return;
-    if (command === "home") buddy.home?.open?.();
+    if (command === "home") void buddy.home?.open?.().catch((error) => showPrivateArtError(error));
     else if (command === "pets") buddy.showPets?.();
     else if (command === "care") buddy.showCare?.();
     else if (command === "talk") buddy.showTalk?.();
@@ -210,6 +214,10 @@
 
       for (const entry of entries) {
         if (!entry?.sha256 || !entry?.importName) throw new Error("Bundled art manifest entry is incomplete.");
+        if (entry.kind === "environment") {
+          skipped += 1;
+          continue;
+        }
         const existing = installedByHash.get(entry.sha256);
         if (existing) {
           if (entry.kind === "human" && existing.id) await buddy.library.setHomeHuman(existing.id);

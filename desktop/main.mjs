@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from "electron";
+import { createCanonicalHomeManager } from "./canonical-home.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -20,6 +21,7 @@ let displayRefreshTimer = null;
 let bundledArtCache = new Map();
 let selectedMonitor = "primary";
 let desktopPrefsPath = null;
+let canonicalHome = null;
 
 if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
@@ -101,6 +103,7 @@ async function chooseMonitor(value) {
   selectedMonitor = next;
   await saveDesktopPreferences();
   applySelectedMonitorBounds();
+  canonicalHome?.reclamp();
   overlayWindow?.webContents.send("pocket-buddy:displays-changed", displaySnapshot());
   refreshTrayMenu();
   return displaySnapshot();
@@ -224,6 +227,7 @@ function scheduleDisplayRefresh() {
   displayRefreshTimer = setTimeout(() => {
     displayRefreshTimer = null;
     applySelectedMonitorBounds();
+    canonicalHome?.reclamp();
     overlayWindow?.webContents.send("pocket-buddy:displays-changed", displaySnapshot());
     refreshTrayMenu();
   }, 120);
@@ -287,7 +291,7 @@ async function loadPrivateArtRoot(root) {
     entries.push({
       id: expectedSha,
       displayName: typeof item.displayName === "string" && item.displayName.trim() ? item.displayName.trim().slice(0, 120) : importName.replace(/\.zip$/i, ""),
-      kind: item.kind === "human" ? "human" : "buddy",
+      kind: item.kind === "human" ? "human" : item.kind === "environment" ? "environment" : "buddy",
       file,
       importName,
       sha256: expectedSha,
@@ -335,6 +339,26 @@ ipcMain.handle("pocket-buddy:list-bundled-art", async () => discoverBundledArt()
 ipcMain.handle("pocket-buddy:read-bundled-art", async (_event, id) => readBundledArt(String(id ?? "")));
 ipcMain.handle("pocket-buddy:list-displays", async () => displaySnapshot());
 ipcMain.handle("pocket-buddy:select-display", async (_event, id) => chooseMonitor(id));
+ipcMain.handle("pocket-buddy:open-home", async (event, options) => {
+  if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) {
+    throw new Error("Canonical Home can only be opened by Pocket Buddy.");
+  }
+  if (!canonicalHome) throw new Error("Canonical Home is not ready yet.");
+  return canonicalHome.open(options);
+});
+ipcMain.on("pocket-buddy:close-home", (event) => {
+  if (overlayWindow && !overlayWindow.isDestroyed() && event.sender === overlayWindow.webContents) canonicalHome?.close();
+});
+ipcMain.on("pocket-buddy:home-close", (event) => {
+  if (canonicalHome?.owns(event.sender)) canonicalHome.close();
+});
+ipcMain.on("pocket-buddy:home-care", (event, action) => {
+  if (!canonicalHome?.owns(event.sender)) return;
+  const allowed = new Set(["feed", "play", "pet", "nap", "clean", "medicine"]);
+  const value = String(action ?? "");
+  if (!allowed.has(value)) return;
+  overlayWindow?.webContents.send("pocket-buddy:home-care", value);
+});
 
 app.whenReady().then(async () => {
   app.setName("Pocket Buddy");
@@ -342,6 +366,11 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin") app.dock?.hide();
 
   await loadDesktopPreferences();
+  canonicalHome = createCanonicalHomeManager({
+    getWorkArea: selectedWorkArea,
+    getArtEntries: discoverBundledArt,
+    readArtBytes: readBundledArt,
+  });
   overlayWindow = createOverlayWindow();
   createTray();
 
@@ -362,7 +391,7 @@ app.whenReady().then(async () => {
   app.quit();
 });
 
-app.on("before-quit", () => { quitting = true; });
+app.on("before-quit", () => { quitting = true; void canonicalHome?.dispose(); });
 app.on("window-all-closed", (event) => {
   event?.preventDefault?.();
 });

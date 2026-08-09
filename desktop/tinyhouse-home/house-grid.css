@@ -1,0 +1,45 @@
+#structure-hit-layer{pointer-events:none;z-index:880}
+#structure-hit-layer[data-mode]:not([data-mode="furnish"]){pointer-events:auto}
+.structure-floor-hit,.structure-edge-hit{position:absolute;border:0;background:transparent;cursor:pointer;padding:0;image-rendering:pixelated}
+.structure-floor-hit{width:128px;height:128px;clip-path:polygon(50% 28%,100% 53%,50% 78%,0 53%);background:rgba(128,231,196,.2);outline:2px dashed rgba(193,255,229,.68);outline-offset:-18px}
+.structure-floor-hit.existing{background:rgba(255,111,126,.18);outline-color:rgba(255,170,177,.8)}
+.structure-floor-hit:hover{background:rgba(255,220,117,.34);filter:drop-shadow(0 0 8px rgba(255,220,117,.65))}
+.structure-edge-hit{width:84px;height:24px;background:rgba(126,205,255,.22);border:2px dashed rgba(190,232,255,.76);transform-origin:center}
+.structure-edge-hit.axis-left{transform:rotate(-26.565deg)}
+.structure-edge-hit.axis-right{transform:rotate(26.565deg)}
+.structure-edge-hit.has-wall{background:rgba(255,179,92,.28)}
+.structure-edge-hit.has-door{background:rgba(155,244,188,.32)}
+.structure-edge-hit:hover{background:rgba(255,230,119,.46);box-shadow:0 0 10px rgba(255,230,119,.72)}
+.structure-door{position:absolute;pointer-events:auto;border:0;background:transparent;padding:0;cursor:pointer;image-rendering:pixelated;overflow:visible}
+.structure-door img{display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;pointer-events:none}
+.structure-door.open{filter:drop-shadow(0 0 6px rgba(110,255,181,.75))}
+.structure-door.closed{filter:drop-shadow(0 3px 0 rgba(21,20,24,.4))}
+.structure-door.axis-right img{transform:scaleX(-1)}
+.structure-floor,.structure-wall{image-rendering:pixelated}
+#structure-tools{position:absolute;right:18px;top:92px;width:250px;z-index:7200;padding:12px;background:rgba(29,27,34,.95);color:#f8f1e3;pointer-events:auto;transition:transform .16s ease,opacity .16s ease}
+#structure-tools.collapsed{transform:translateX(calc(100% - 43px));opacity:.82}
+#structure-tools.collapsed .structure-modes,#structure-tools.collapsed .structure-room-actions,#structure-tools.collapsed .structure-help,#structure-tools.collapsed .structure-status,#structure-tools.collapsed .structure-heading>div{visibility:hidden}
+.structure-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}
+.structure-heading h2{font-size:18px;line-height:1;margin:2px 0 0;text-transform:uppercase}
+.structure-collapse{width:32px;height:32px;border:2px solid #725f55;background:#e6bb72;color:#2d2522;font-weight:900;cursor:pointer}
+.structure-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.structure-modes button,.structure-room-actions button{min-height:32px;border:2px solid #675b58;background:#39343d;color:#f7ead7;font:700 10px/1 monospace;cursor:pointer;box-shadow:inset -2px -2px 0 rgba(0,0,0,.25)}
+.structure-modes button:hover,.structure-room-actions button:hover{background:#504751}
+.structure-modes button.active{border-color:#f3ca7a;background:#72553c;color:#fff7db}
+.structure-room-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.structure-room-actions button:last-child{grid-column:1/-1}
+.structure-help{margin:9px 0 7px;font-size:10px;line-height:1.35;color:#cabeb3}
+.structure-status{padding-top:7px;border-top:1px solid #5f5658;font:700 10px/1.3 monospace;color:#aeeacb}
+.blueprint-heading{grid-column:1/-1;display:flex;flex-direction:column;gap:2px;padding:7px;border:2px solid #4e6266;background:#253337}
+.blueprint-heading span{font:900 11px/1 monospace;color:#b9f4e6}
+.blueprint-heading small{font:700 8px/1.25 monospace;color:#91aaa6}
+.blueprint-field{display:flex;flex-direction:column;gap:3px;color:#c8bdb1;font:700 8px/1 monospace}
+.blueprint-field:first-of-type{grid-column:1/-1}
+.blueprint-field select{min-height:30px;border:2px solid #5e6262;background:#24252a;color:#fff4dd;font:700 10px/1 monospace;padding:0 6px}
+.blueprint-history{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.blueprint-history button:disabled{cursor:not-allowed;opacity:.4;filter:saturate(.35)}
+.blueprint-status{grid-column:1/-1;margin:0;padding:6px;border:1px solid #506462;background:#202a2a;color:#aeeacb;font:700 9px/1.35 monospace}
+.blueprint-status.invalid{border-color:#805159;color:#ffb9c0;background:#332326}
+#world-viewport[data-structure-mode]:not([data-structure-mode="furnish"]) #placement-ghost{display:none!important}
+@media(max-width:900px){#structure-tools{right:8px;top:82px;width:210px}.structure-room-actions{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){#structure-tools{transition:none}}

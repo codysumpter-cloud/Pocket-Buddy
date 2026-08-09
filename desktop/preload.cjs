@@ -13,6 +13,18 @@ contextBridge.exposeInMainWorld("PocketBuddyDesktop", {
     ipcRenderer.on("pocket-buddy:command", handler);
     return () => ipcRenderer.removeListener("pocket-buddy:command", handler);
   },
+  openHome(options) {
+    return ipcRenderer.invoke("pocket-buddy:open-home", options ?? {});
+  },
+  closeHome() {
+    ipcRenderer.send("pocket-buddy:close-home");
+  },
+  onHomeCare(callback) {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, action) => callback(action);
+    ipcRenderer.on("pocket-buddy:home-care", handler);
+    return () => ipcRenderer.removeListener("pocket-buddy:home-care", handler);
+  },
   listBundledArt() {
     return ipcRenderer.invoke("pocket-buddy:list-bundled-art");
   },

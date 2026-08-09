@@ -1,49 +1,143 @@
-const HOME_KEY = "home.state.v3";
-const TW = 88, TH = 44, FURNITURE = ["chair", "table", "bed", "sofa", "lamp", "plant", "door"];
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const key = (x, y) => `${x},${y}`;
-function defaultState() {
-  const floors = {}; for (let y = 0; y < 6; y++) for (let x = 0; x < 8; x++) floors[key(x,y)] = "wood";
-  return { width:8,height:6,floors,walls:{},furniture:[
-    {id:"bed",type:"bed",x:1.5,y:1.3},{id:"table",type:"table",x:4.2,y:2.5},{id:"chair",type:"chair",x:5.1,y:2.5},{id:"sofa",type:"sofa",x:2.4,y:4.2},{id:"plant",type:"plant",x:6.7,y:1.2},{id:"door",type:"door",x:7.4,y:3}
-  ],human:{x:3.3,y:3.4},buddy:{x:4.3,y:3.3},mode:"play",buildMode:"none",floorBrush:"wood",furnitureBrush:"chair"};
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+function cleanHash(value) {
+  const hash = String(value ?? "").toLowerCase();
+  return SHA256_RE.test(hash) ? hash : "";
 }
-function clean(raw) {
-  const d=defaultState(), s=raw&&typeof raw==="object"?raw:{}; const width=clamp(Number.isInteger(s.width)?s.width:d.width,3,16),height=clamp(Number.isInteger(s.height)?s.height:d.height,3,12);
-  return {width,height,floors:s.floors&&typeof s.floors==="object"?{...s.floors}:d.floors,walls:s.walls&&typeof s.walls==="object"?{...s.walls}:{},
-    furniture:Array.isArray(s.furniture)?s.furniture.filter(i=>i&&FURNITURE.includes(i.type)).slice(0,120).map((i,n)=>({id:String(i.id||`${i.type}-${n}`),type:i.type,x:clamp(Number(i.x)||1,.5,width-.5),y:clamp(Number(i.y)||1,.5,height-.5)})):d.furniture,
-    human:{x:clamp(Number(s.human?.x)||d.human.x,.2,width-.2),y:clamp(Number(s.human?.y)||d.human.y,.2,height-.2)},buddy:{x:clamp(Number(s.buddy?.x)||d.buddy.x,.2,width-.2),y:clamp(Number(s.buddy?.y)||d.buddy.y,.2,height-.2)},
-    mode:s.mode==="idle"?"idle":"play",buildMode:["none","floor","erase","wall","furniture","remove"].includes(s.buildMode)?s.buildMode:"none",floorBrush:["wood","stone","grass","water"].includes(s.floorBrush)?s.floorBrush:"wood",furnitureBrush:FURNITURE.includes(s.furnitureBrush)?s.furnitureBrush:"chair"};
+
+function configuredWebHomeUrl() {
+  const raw = typeof window.POCKET_BUDDY_WEB_HOME_URL === "string" ? window.POCKET_BUDDY_WEB_HOME_URL.trim() : "";
+  if (!raw) return null;
+  const url = new URL(raw, window.location.href);
+  if (url.origin !== window.location.origin) throw new Error("Pocket Buddy web Home must be hosted on the same origin as Pocket Buddy.");
+  return url.href;
 }
-const iso=(o,x,y)=>({x:o.x+(x-y)*TW/2,y:o.y+(x+y)*TH/2});
-const inverse=(o,x,y)=>({x:((x-o.x)/(TW/2)+(y-o.y)/(TH/2))/2,y:((y-o.y)/(TH/2)-(x-o.x)/(TW/2))/2});
-const direction=(dx,dy,f="south")=>Math.hypot(dx,dy)<.01?f:["east","south-east","south","south-west","west","north-west","north","north-east"][(Math.round(Math.atan2(dy,dx)/(Math.PI/4))+8)%8];
-function diamond(c,p,fill){c.beginPath();c.moveTo(p.x,p.y);c.lineTo(p.x+TW/2,p.y+TH/2);c.lineTo(p.x,p.y+TH);c.lineTo(p.x-TW/2,p.y+TH/2);c.closePath();c.fillStyle=fill;c.fill();c.strokeStyle="#6e5c52";c.stroke();}
-function furniture(c,item,p){c.save();c.translate(p.x,p.y+22);c.strokeStyle="#3b3045";c.lineWidth=2;const box=(x,y,w,h,color)=>{c.fillStyle=color;c.fillRect(x,y,w,h);c.strokeRect(x,y,w,h)};
-  if(item.type==="bed"){box(-38,-16,76,34,"#754d3f");box(-31,-22,62,24,"#b9a5df")}else if(item.type==="table"){box(-27,-20,54,27,"#9a6c49");box(-22,7,7,20,"#9a6c49");box(15,7,7,20,"#9a6c49")}else if(item.type==="chair"){box(-14,-25,28,29,"#8a6045");box(-14,-41,28,16,"#8a6045")}else if(item.type==="sofa"){box(-36,-25,72,34,"#b66f6f");box(-30,-39,60,17,"#c98484")}else if(item.type==="lamp"){box(-3,-42,6,42,"#5b4b45");c.fillStyle="#f0ce6b";c.beginPath();c.moveTo(-14,-46);c.lineTo(14,-46);c.lineTo(9,-61);c.lineTo(-9,-61);c.closePath();c.fill();c.stroke()}else if(item.type==="plant"){box(-12,-9,24,22,"#825e46");c.fillStyle="#5f9d5e";c.fillRect(-5,-41,10,32);c.fillRect(-20,-32,16,9);c.fillRect(4,-27,18,9)}else box(-11,-65,22,65,"#704934");c.restore();}
-function fallbackHuman(c,p){c.save();c.translate(p.x,p.y+18);const r=(x,y,w,h,col)=>{c.fillStyle=col;c.fillRect(x*4,y*4,w*4,h*4)};r(-2,-13,4,4,"#d6a67d");r(-3,-9,6,5,"#29272d");r(-3,-4,2,5,"#4d6a88");r(1,-4,2,5,"#4d6a88");r(-4,-12,6,2,"#4b2f29");c.restore();}
-function nearest(s,type,from){return s.furniture.filter(i=>!type||i.type===type).sort((a,b)=>Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(b.x-from.x,b.y-from.y))[0]||null;}
-export function createHome({storage,brain,petRuntime,petLibrary,shadowRoot,onClose=()=>{}}){
-  let s=defaultState(),root=null,canvas=null,c=null,buildbar=null,raf=0,last=performance.now(),keys=new Set(),humanRuntime=null,hdir="south",bdir="south",hgoal=null,bgoal=null,lastPlan=0,lastCare=0,drag=null;
-  const save=()=>void storage.setJson(HOME_KEY,s); const origin=()=>({x:canvas.width/2,y:70});
-  async function load(){s=clean(await storage.getJson(HOME_KEY,null));const id=await petLibrary.homeHumanId();humanRuntime=id?await petRuntime.runtimeFor(id):null;}
-  function style(){const e=document.createElement("style");e.id="pb-home-style";e.textContent=`.pb-home{position:fixed;inset:8px;z-index:2147483645;background:#91b59b;border:3px solid #3b3045;box-shadow:6px 6px 0 #3b3045;display:flex;flex-direction:column;font-family:Monocraft,monospace;color:#2d2634;pointer-events:auto}.pb-homebar,.pb-buildbar{display:flex;gap:5px;align-items:center;flex-wrap:wrap;background:#ffecda;border-bottom:2px solid #3b3045;padding:5px}.pb-home button,.pb-home select{font:inherit;font-size:11px;border:2px solid #3b3045;background:#fff8e9;padding:5px 7px;color:#2d2634}.pb-home button.active{background:#ffa3cb}.pb-stage{position:relative;flex:1;min-height:0}.pb-stage canvas{width:100%;height:100%;image-rendering:pixelated;touch-action:none}.pb-status{position:absolute;left:8px;bottom:8px;background:#ffecda;border:2px solid #3b3045;padding:5px;font-size:10px;max-width:76%}.pb-dpad{position:absolute;right:10px;bottom:10px;display:grid;grid-template-columns:40px 40px 40px;grid-template-rows:40px 40px;gap:3px}.pb-dpad .u{grid-column:2}.pb-dpad .l{grid-column:1;grid-row:2}.pb-dpad .d{grid-column:2;grid-row:2}.pb-dpad .r{grid-column:3;grid-row:2}@media(min-width:700px){.pb-dpad{display:none}}`;shadowRoot.appendChild(e);}
-  const btn=(t,fn)=>{const b=document.createElement("button");b.textContent=t;b.onclick=fn;return b};
-  function ui(){if(!root)return;root.querySelectorAll("[data-mode]").forEach(e=>e.classList.toggle("active",e.dataset.mode===s.mode));root.querySelectorAll("[data-build]").forEach(e=>e.classList.toggle("active",e.dataset.build===s.buildMode));buildbar.style.display=s.buildMode==="none"?"none":"flex";}
-  async function open(){if(root)return;await load();style();root=document.createElement("div");root.className="pb-home";const bar=document.createElement("div");bar.className="pb-homebar";const title=document.createElement("strong");title.textContent=`${brain.snapshot().displayName}'s Home`;const play=btn("Play",()=>{s.mode="play";save();ui()});play.dataset.mode="play";const idle=btn("Idle",()=>{s.mode="idle";keys.clear();save();ui()});idle.dataset.mode="idle";bar.append(title,play,idle,btn("Build",()=>{s.buildMode=s.buildMode==="none"?"floor":"none";save();ui()}),btn("Pet",()=>brain.care("pet")),btn("Feed",()=>brain.care("feed")));const spacer=document.createElement("span");spacer.style.flex="1";bar.append(spacer,btn("Leave Home",close));
-    buildbar=document.createElement("div");buildbar.className="pb-buildbar";for(const [m,l] of [["floor","Floor"],["erase","Erase"],["wall","Wall"],["furniture","Furniture"],["remove","Remove"]]){const b=btn(l,()=>{s.buildMode=m;save();ui()});b.dataset.build=m;buildbar.append(b)}const fs=document.createElement("select");for(const x of ["wood","stone","grass","water"]){const o=document.createElement("option");o.value=o.textContent=x;fs.append(o)}fs.value=s.floorBrush;fs.onchange=()=>{s.floorBrush=fs.value;save()};const fur=document.createElement("select");for(const x of FURNITURE){const o=document.createElement("option");o.value=o.textContent=x;fur.append(o)}fur.value=s.furnitureBrush;fur.onchange=()=>{s.furnitureBrush=fur.value;save()};buildbar.append(fs,fur,btn("Reset",()=>{if(confirm("Reset this Home layout?")){s=defaultState();save();ui()}}));
-    const stage=document.createElement("div");stage.className="pb-stage";canvas=document.createElement("canvas");canvas.width=1050;canvas.height=680;c=canvas.getContext("2d");c.imageSmoothingEnabled=false;const status=document.createElement("div");status.className="pb-status";status.id="pb-status";const pad=document.createElement("div");pad.className="pb-dpad";for(const [d,cl,t] of [["up","u","↑"],["left","l","←"],["down","d","↓"],["right","r","→"]]){const b=btn(t,()=>{});b.className=cl;const on=e=>{e.preventDefault();keys.add(d)},off=e=>{e.preventDefault();keys.delete(d)};b.onpointerdown=on;b.onpointerup=off;b.onpointercancel=off;b.onpointerleave=off;pad.append(b)}stage.append(canvas,status,pad);root.append(bar,buildbar,stage);shadowRoot.append(root);ui();window.addEventListener("keydown",keydown,true);window.addEventListener("keyup",keyup,true);canvas.onpointerdown=pdown;canvas.onpointermove=pmove;canvas.onpointerup=pup;last=performance.now();raf=requestAnimationFrame(loop);}
-  function close(){if(!root)return;cancelAnimationFrame(raf);raf=0;window.removeEventListener("keydown",keydown,true);window.removeEventListener("keyup",keyup,true);shadowRoot.getElementById("pb-home-style")?.remove();root.remove();root=canvas=c=null;drag=null;save();onClose();}
-  const mapping={w:"up",arrowup:"up",s:"down",arrowdown:"down",a:"left",arrowleft:"left",d:"right",arrowright:"right"};function keydown(e){if(!root||s.mode!=="play")return;const m=mapping[e.key.toLowerCase()];if(m){keys.add(m);e.preventDefault();e.stopPropagation()}}function keyup(e){const m=mapping[e.key.toLowerCase()];if(m)keys.delete(m)}
-  function cell(e){const r=canvas.getBoundingClientRect(),x=(e.clientX-r.left)*canvas.width/r.width,y=(e.clientY-r.top)*canvas.height/r.height,q=inverse(origin(),x,y-TH/2);return{x:Math.floor(q.x+.5),y:Math.floor(q.y+.5)}}
-  function pdown(e){if(s.buildMode==="none")return;const q=cell(e);if(q.x<0||q.y<0||q.x>=s.width||q.y>=s.height)return;const t={x:q.x+.5,y:q.y+.5};if(s.buildMode==="floor")s.floors[key(q.x,q.y)]=s.floorBrush;else if(s.buildMode==="erase")delete s.floors[key(q.x,q.y)];else if(s.buildMode==="wall")s.walls[key(q.x,q.y)]=!s.walls[key(q.x,q.y)];else if(s.buildMode==="remove"){const i=nearest(s,null,t);if(i&&Math.hypot(i.x-t.x,i.y-t.y)<1.2)s.furniture=s.furniture.filter(x=>x.id!==i.id)}else{const i=nearest(s,null,t);if(i&&Math.hypot(i.x-t.x,i.y-t.y)<.8){drag=i;canvas.setPointerCapture?.(e.pointerId)}else s.furniture.push({id:`${s.furnitureBrush}-${Date.now()}`,type:s.furnitureBrush,x:t.x,y:t.y})}save();}
-  function pmove(e){if(!drag)return;const q=cell(e);drag.x=clamp(q.x+.5,.5,s.width-.5);drag.y=clamp(q.y+.5,.5,s.height-.5)}function pup(e){if(!drag)return;save();drag=null;if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId)}
-  const floorAt=(x,y)=>Boolean(s.floors[key(Math.floor(x),Math.floor(y))]);function move(a,dx,dy,speed,dt){if(!dx&&!dy)return{dx:0,dy:0};const n=Math.hypot(dx,dy)||1,sx=dx/n*speed*dt,sy=dy/n*speed*dt,nx=clamp(a.x+sx,.15,s.width-.15),ny=clamp(a.y+sy,.15,s.height-.15);if(floorAt(nx,a.y))a.x=nx;if(floorAt(a.x,ny))a.y=ny;return{dx:sx,dy:sy}}
-  async function plan(now){if(now-lastPlan<4500)return;lastPlan=now;const snap=brain.snapshot(),need=snap.dominantNeed;let t=need==="food"?nearest(s,"table",s.human):need==="sleep"?nearest(s,"bed",s.human):need==="play"?nearest(s,"sofa",s.human):null;t=t||{x:s.buddy.x+.7,y:s.buddy.y+.2};hgoal={x:t.x,y:t.y};bgoal=Math.random()<.7?{x:hgoal.x+(Math.random()-.5),y:hgoal.y+(Math.random()-.5)}:{x:.5+Math.random()*(s.width-1),y:.5+Math.random()*(s.height-1)};if(now-lastCare>30000){const l=snap.lifecycle;const a=l.hunger<58?"feed":l.energy<45?"nap":l.happiness<58?"play":l.affection<58?"pet":l.mess>=3?"clean":null;if(a){lastCare=now;setTimeout(()=>{if(root&&s.mode==="idle")void brain.care(a)},2000)}}}
-  function update(dt,now){let hm={dx:0,dy:0},bm={dx:0,dy:0};if(s.mode==="play"){const dx=(keys.has("right")?1:0)-(keys.has("left")?1:0),dy=(keys.has("down")?1:0)-(keys.has("up")?1:0);hm=move(s.human,dx,dy,.0023,dt);const bx=s.human.x-s.buddy.x,by=s.human.y-s.buddy.y;if(Math.hypot(bx,by)>1.25)bm=move(s.buddy,bx,by,.00165,dt)}else{void plan(now);if(hgoal){const dx=hgoal.x-s.human.x,dy=hgoal.y-s.human.y;if(Math.hypot(dx,dy)>.18)hm=move(s.human,dx,dy,.00115,dt)}if(bgoal){const dx=bgoal.x-s.buddy.x,dy=bgoal.y-s.buddy.y;if(Math.hypot(dx,dy)>.18)bm=move(s.buddy,dx,dy,.00105,dt)}}if(Math.hypot(hm.dx,hm.dy)>.001)hdir=direction(hm.dx,hm.dy,hdir);if(Math.hypot(bm.dx,bm.dy)>.001)bdir=direction(bm.dx,bm.dy,bdir)}
-  function wall(p,west=false){c.fillStyle="#d8bda8";c.strokeStyle="#4b3b45";c.beginPath();c.moveTo(p.x,p.y);c.lineTo(p.x+(west?-TW/2:TW/2),p.y+TH/2);c.lineTo(p.x+(west?-TW/2:TW/2),p.y-55+TH/2);c.lineTo(p.x,p.y-55);c.closePath();c.fill();c.stroke()}
-  function draw(now){c.clearRect(0,0,canvas.width,canvas.height);c.fillStyle="#8eae95";c.fillRect(0,0,canvas.width,canvas.height);const o=origin(),colors={wood:"#d7b98a",stone:"#a7a2a1",grass:"#8dbb78",water:"#71a9cf"};for(let y=0;y<s.height;y++)for(let x=0;x<s.width;x++){const f=s.floors[key(x,y)];if(f)diamond(c,iso(o,x,y),colors[f])}for(let x=0;x<s.width;x++)if(s.floors[key(x,0)])wall(iso(o,x,0));for(let y=0;y<s.height;y++)if(s.floors[key(0,y)])wall(iso(o,0,y),true);for(const k of Object.keys(s.walls))if(s.walls[k]){const [x,y]=k.split(",").map(Number);wall(iso(o,x,y),(x+y)%2===1)}
-    const actors=s.furniture.map(item=>({kind:"f",z:item.x+item.y,item,p:iso(o,item.x,item.y)}));actors.push({kind:"h",z:s.human.x+s.human.y,p:iso(o,s.human.x,s.human.y)},{kind:"b",z:s.buddy.x+s.buddy.y,p:iso(o,s.buddy.x,s.buddy.y)});actors.sort((a,b)=>a.z-b.z);for(const a of actors){if(a.kind==="f")furniture(c,a.item,a.p);else if(a.kind==="h"){if(humanRuntime)petRuntime.drawRuntime(humanRuntime,c,keys.size||s.mode==="idle"?"running":"idle",hdir,now,a.p.x,a.p.y+27,.64);else fallbackHuman(c,a.p)}else{const pack=petRuntime.activePack();if(pack)petRuntime.drawActive(c,"idle",bdir,now,a.p.x,a.p.y+27,pack.frameHeight>100?.48:.72);else{const legacy=shadowRoot.getElementById("birb");if(legacy)c.drawImage(legacy,a.p.x-22,a.p.y-20,44,44)}}}const snap=brain.snapshot(),status=root.querySelector("#pb-status");if(status)status.textContent=`${s.mode.toUpperCase()} • ${snap.displayName}: ${snap.mood} • food ${Math.round(snap.lifecycle.hunger)} • energy ${Math.round(snap.lifecycle.energy)} • fun ${Math.round(snap.lifecycle.happiness)} • bond ${Math.round(snap.lifecycle.affection)}${humanRuntime?"":" • Import Ani_Iso_Human.zip in Field Guide for your exact human"}`;}
-  function loop(now){if(!root)return;const dt=Math.min(50,now-last);last=now;update(dt,now);draw(now);raf=requestAnimationFrame(loop)}
-  return{open,close,isOpen:()=>!!root,async reloadHuman(){const id=await petLibrary.homeHumanId();humanRuntime=id?await petRuntime.runtimeFor(id):null}};
+
+export function createHome({ brain, petRuntime, petLibrary, shadowRoot, onClose = () => {} }) {
+  let openState = false;
+  let lastError = "";
+  let webShell = null;
+
+  function showError(message) {
+    lastError = String(message || "Home could not open.");
+    shadowRoot?.querySelector(".pb-home-launch-error")?.remove();
+    if (!shadowRoot) return;
+    const panel = document.createElement("div");
+    panel.className = "pb-home-launch-error";
+    panel.style.cssText = "position:fixed;left:12px;top:12px;z-index:2147483647;max-width:420px;padding:9px;border:3px solid var(--birb-border-color);background:var(--birb-background-color);box-shadow:5px 5px 0 var(--birb-border-color);font:12px Monocraft,monospace;color:#2d2634;pointer-events:auto;";
+    const title = document.createElement("strong");
+    title.textContent = "Pocket Buddy Home";
+    const detail = document.createElement("div");
+    detail.style.marginTop = "5px";
+    detail.textContent = lastError;
+    const closeButton = document.createElement("button");
+    closeButton.textContent = "OK";
+    closeButton.style.cssText = "margin-top:7px;font:inherit;border:2px solid var(--birb-border-color);background:var(--birb-background-color);padding:4px 8px;";
+    closeButton.onclick = () => panel.remove();
+    panel.append(title, detail, closeButton);
+    shadowRoot.append(panel);
+  }
+
+  async function homeHumanPack() {
+    const id = await petLibrary.homeHumanId();
+    if (!id) return null;
+    return (await petLibrary.listInstalled()).find((pack) => pack.id === id) ?? null;
+  }
+
+  function closeWebHome() {
+    webShell?.remove();
+    webShell = null;
+  }
+
+  async function openWebHome(url, human) {
+    if (!shadowRoot) throw new Error("Pocket Buddy web Home could not attach to the page.");
+    closeWebHome();
+
+    const shell = document.createElement("div");
+    shell.className = "pb-web-home-shell";
+    shell.style.cssText = "position:fixed;inset:8px;z-index:2147483646;background:#0e0f13;border:3px solid var(--birb-border-color);box-shadow:6px 6px 0 var(--birb-border-color);pointer-events:auto;overflow:hidden;";
+
+    const frame = document.createElement("iframe");
+    frame.className = "pb-web-home-frame";
+    frame.title = "Pocket Buddy Home";
+    frame.src = url;
+    frame.allow = "clipboard-write";
+    frame.style.cssText = "display:block;width:100%;height:100%;border:0;background:#0e0f13;";
+
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.textContent = "LEAVE HOME";
+    closeButton.setAttribute("aria-label", "Leave Pocket Buddy Home");
+    closeButton.style.cssText = "position:absolute;right:10px;top:10px;z-index:5;font:10px Monocraft,monospace;border:2px solid var(--birb-border-color);background:var(--birb-background-color);color:#2d2634;padding:6px 8px;box-shadow:3px 3px 0 var(--birb-border-color);";
+    closeButton.onclick = () => close();
+
+    shell.append(frame, closeButton);
+    shadowRoot.append(shell);
+    webShell = shell;
+    openState = true;
+    lastError = "";
+    shadowRoot.querySelector(".pb-home-launch-error")?.remove();
+
+    return {
+      ok: true,
+      mode: "web",
+      url,
+      human: human.displayName,
+      donor: "6e4a80775f8a7f5b0d243b0a9f50e6653526219b",
+    };
+  }
+
+  async function open() {
+    try {
+      const human = await homeHumanPack();
+      const humanSha256 = cleanHash(human?.archiveSha256);
+      if (!humanSha256) {
+        throw new Error("Home requires the exact verified Ani Iso Human pack. No substitute player will be rendered.");
+      }
+
+      const bridge = window.PocketBuddyDesktop;
+      if (bridge?.openHome) {
+        const active = petRuntime.activePack();
+        const petSha256 = cleanHash(active?.archiveSha256);
+        const result = await bridge.openHome({
+          humanSha256,
+          petSha256,
+          petScale: petRuntime.scaleMultiplier(),
+          uiScale: petRuntime.uiScaleMultiplier(),
+          humanScale: 1.2,
+          buddyName: brain.snapshot().displayName,
+        });
+        if (!result?.ok) throw new Error(result?.error || "Canonical Home did not open.");
+        openState = true;
+        lastError = "";
+        shadowRoot?.querySelector(".pb-home-launch-error")?.remove();
+        return result;
+      }
+
+      const webUrl = configuredWebHomeUrl();
+      if (webUrl) return openWebHome(webUrl, human);
+
+      throw new Error("This host has not configured the canonical Pocket Buddy Home runtime. No substitute room will be rendered.");
+    } catch (error) {
+      openState = false;
+      showError(error instanceof Error ? error.message : String(error));
+      console.error("Pocket Buddy canonical Home failed to open", error);
+      return { ok: false, error: lastError };
+    }
+  }
+
+  function close() {
+    window.PocketBuddyDesktop?.closeHome?.();
+    closeWebHome();
+    openState = false;
+    onClose();
+  }
+
+  return {
+    open,
+    close,
+    isOpen: () => openState,
+    lastError: () => lastError,
+    async reloadHuman() {},
+  };
 }
