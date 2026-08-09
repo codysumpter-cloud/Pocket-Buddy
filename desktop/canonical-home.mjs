@@ -173,7 +173,7 @@ function boundedWindowBounds(workArea, prior = null) {
   return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
 }
 
-export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes }) {
+export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes, onClosed = () => {} }) {
   let homeWindow = null;
   let server = null;
   let baseUrl = "";
@@ -319,7 +319,7 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
         },
       });
       homeWindow.setMenuBarVisibility(false);
-      homeWindow.on("closed", () => { homeWindow = null; });
+      homeWindow.on("closed", () => { homeWindow = null; onClosed(); });
       homeWindow.once("ready-to-show", () => {
         reclamp();
         homeWindow?.show();

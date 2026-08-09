@@ -370,6 +370,7 @@ app.whenReady().then(async () => {
     getWorkArea: selectedWorkArea,
     getArtEntries: discoverBundledArt,
     readArtBytes: readBundledArt,
+    onClosed: () => overlayWindow?.webContents.send("pocket-buddy:home-closed"),
   });
   overlayWindow = createOverlayWindow();
   createTray();
