@@ -1,3 +1,4 @@
+# one-shot patch trigger
 name: Apply free Home movement patch
 
 on:
@@ -58,15 +59,9 @@ jobs:
 
           function maybeMoveHuman(_now, dt) {
             if (!human) return;
-            if (mode !== "play") {
-              human.moving = false;
-              return;
-            }
+            if (mode !== "play") { human.moving = false; return; }
             const vector = desiredHumanVector();
-            if (!vector.x && !vector.y) {
-              human.moving = false;
-              return;
-            }
+            if (!vector.x && !vector.y) { human.moving = false; return; }
             const motion = window.PocketBuddyActorMotion;
             const grid = window.TinyHouseStructure.grid;
             applyMotion(human, motion.moveScreen(grid, human.cell, vector.x, vector.y, dt, HUMAN_SPEED_PX));
@@ -88,16 +83,10 @@ jobs:
             const motion = window.PocketBuddyActorMotion;
             const grid = window.TinyHouseStructure.grid;
             const target = ensureWanderTarget(actor, now);
-            if (!target) {
-              actor.moving = false;
-              return;
-            }
+            if (!target) { actor.moving = false; return; }
             const result = motion.moveToward(grid, actor.cell, target, dt, speed, 6);
             applyMotion(actor, result);
-            if (!result.moved && !result.reached) {
-              actor.target = null;
-              actor.targetUntil = 0;
-            }
+            if (!result.moved && !result.reached) { actor.target = null; actor.targetUntil = 0; }
           }
 
           function maybeMoveBuddy(now, dt) {
@@ -107,12 +96,8 @@ jobs:
             if (mode === "play" && human) {
               buddy.target = null;
               const distance = motion.distancePx(grid, buddy.cell, human.cell);
-              if (distance > 72) {
-                const result = motion.moveToward(grid, buddy.cell, human.cell, dt, BUDDY_SPEED_PX, 62);
-                applyMotion(buddy, result);
-              } else {
-                buddy.moving = false;
-              }
+              if (distance > 72) applyMotion(buddy, motion.moveToward(grid, buddy.cell, human.cell, dt, BUDDY_SPEED_PX, 62));
+              else buddy.moving = false;
               return;
             }
             moveAutonomous(buddy, now, dt, BUDDY_IDLE_SPEED_PX);
@@ -125,7 +110,6 @@ jobs:
 
 '''
 
-          # Pet runtime: Home owns the single visible Buddy presence.
           path = Path("src/buddy/pet-runtime.js")
           text = path.read_text(encoding="utf-8")
           text = replace_once(text, '  let rootListenersInstalled = false;\n', '  let rootListenersInstalled = false;\n  let homeActive = false;\n', 'pet runtime home state')
@@ -184,10 +168,7 @@ jobs:
               return;
             }
             active = await library.loadRuntime(id);
-            if (!active) {
-              syncPresence();
-              return;
-            }
+            if (!active) { syncPresence(); return; }
             ensureOverlay();
             syncPresence();
             if (active.pack.source === "openpets") void imageFor(active, active.pack.sheetPath, "image/webp");
@@ -195,27 +176,22 @@ jobs:
 '''
           text = replace_once(text, old_select, new_select, 'pet select presence')
           text = replace_once(text, '  function drawOverlay(now) {\n    if (!active || !base || !overlay || !overlayCtx) return;\n', '  function drawOverlay(now) {\n    if (homeActive || !active || !base || !overlay || !overlayCtx) return;\n', 'overlay hidden in Home')
-          text = replace_once(text, '    uiScaleMultiplier,\n    drawRuntime,\n', '    uiScaleMultiplier,\n    setHomeActive(value) {\n      homeActive = Boolean(value);\n      syncPresence();\n    },\n    isHomeActive() { return homeActive; },\n    drawRuntime,\n', 'expose Home presence')
+          text = replace_once(text, '    uiScaleMultiplier,\n    drawRuntime,\n', '    uiScaleMultiplier,\n    setHomeActive(value) { homeActive = Boolean(value); syncPresence(); },\n    isHomeActive() { return homeActive; },\n    drawRuntime,\n', 'expose Home presence')
           text = replace_once(text, '      if (base) base.style.opacity = "";\n', '      if (base) { base.style.opacity = ""; base.style.pointerEvents = ""; }\n', 'restore pointer events')
           path.write_text(text, encoding="utf-8")
 
-          # Desktop and web actor bridges share continuous sub-cell movement.
-          for filename, desktop in [
-              ("desktop/pocket-buddy-home-actors.js", True),
-              ("desktop/tinyhouse-home/pocket-buddy-web-actors.js", False),
-          ]:
+          for filename, desktop in [("desktop/pocket-buddy-home-actors.js", True), ("desktop/tinyhouse-home/pocket-buddy-web-actors.js", False)]:
               path = Path(filename)
               text = path.read_text(encoding="utf-8")
               text = replace_once(text, '  const MOVE_MS = 180;\n', '  const HUMAN_SPEED_PX = 155;\n  const HUMAN_IDLE_SPEED_PX = 92;\n  const BUDDY_SPEED_PX = 112;\n  const BUDDY_IDLE_SPEED_PX = 82;\n', f'{filename} speeds')
               if desktop:
-                  text = replace_once(text, '  const keys = new Set();\n', '  const keys = new Set();\n  window.addEventListener("keydown", (event) => {\n    if (event.key !== "Escape") return;\n    event.preventDefault();\n    event.stopPropagation();\n    keys.clear();\n    bridge?.close?.();\n  }, true);\n', 'desktop early Escape')
+                  text = replace_once(text, '  const keys = new Set();\n', '  const keys = new Set();\n  window.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); keys.clear(); bridge?.close?.(); } }, true);\n', 'desktop early Escape')
               else:
-                  text = replace_once(text, '  const keys = new Set();\n', '  const keys = new Set();\n  window.addEventListener("keydown", (event) => {\n    if (event.key !== "Escape") return;\n    event.preventDefault();\n    event.stopPropagation();\n    keys.clear();\n    buddyApi.home?.close?.();\n  }, true);\n', 'web early Escape')
+                  text = replace_once(text, '  const keys = new Set();\n', '  const keys = new Set();\n  window.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); keys.clear(); buddyApi.home?.close?.(); } }, true);\n', 'web early Escape')
                   text = replace_once(text, '  let lastIdleMove = 0;\n', '  let lastIdleMove = 0;\n  let lastFrameAt = performance.now();\n', 'web frame time')
               text = replace_once(text, '      moving: false,\n      moveStartedAt: 0,\n', '      moving: false,\n      moveStartedAt: 0,\n      target: null,\n      targetUntil: 0,\n', f'{filename} targets')
               text = replace_between(text, '  function startMove(actor, target, now = performance.now()) {', '  function renderActor(actor, now) {', movement_block + '  function renderActor(actor, now) {', f'{filename} movement block')
               if desktop:
-                  text = replace_once(text, '    const point = actorPosition(actor, now);\n', '    const point = worldPoint(actor.cell);\n', 'desktop direct actor point') if '    const point = actorPosition(actor, now);\n' in text else text
                   old_loop = '''  function loop(now) {
             const dt = Math.min(50, now - lastFrameAt);
             lastFrameAt = now;
@@ -229,7 +205,6 @@ jobs:
           }
 '''
               else:
-                  text = replace_once(text, '    const point = actorPoint(actor, now);\n', '    const point = worldPoint(actor.cell);\n', 'web direct actor point') if '    const point = actorPoint(actor, now);\n' in text else text
                   old_loop = '''  function loop(now) {
             maybeMoveHuman(now);
             maybeMoveBuddy(now);
@@ -253,25 +228,15 @@ jobs:
               text = replace_once(text, old_loop, new_loop, f'{filename} continuous loop')
               path.write_text(text, encoding="utf-8")
 
-          # Native Home close (including the Windows X button) restores the desktop Buddy.
           path = Path("desktop/canonical-home.mjs")
           text = path.read_text(encoding="utf-8")
-          text = replace_once(text,
-              'export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes }) {',
-              'export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes, onClosed = () => {} }) {',
-              'canonical Home close callback')
-          text = replace_once(text,
-              '      homeWindow.on("closed", () => { homeWindow = null; });',
-              '      homeWindow.on("closed", () => { homeWindow = null; onClosed(); });',
-              'canonical Home closed event')
+          text = replace_once(text, 'export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes }) {', 'export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes, onClosed = () => {} }) {', 'canonical Home close callback')
+          text = replace_once(text, '      homeWindow.on("closed", () => { homeWindow = null; });', '      homeWindow.on("closed", () => { homeWindow = null; onClosed(); });', 'canonical Home closed event')
           path.write_text(text, encoding="utf-8")
 
           path = Path("desktop/main.mjs")
           text = path.read_text(encoding="utf-8")
-          text = replace_once(text,
-              '    readArtBytes: readBundledArt,\n  });',
-              '    readArtBytes: readBundledArt,\n    onClosed: () => overlayWindow?.webContents.send("pocket-buddy:home-closed"),\n  });',
-              'main Home closed IPC')
+          text = replace_once(text, '    readArtBytes: readBundledArt,\n  });', '    readArtBytes: readBundledArt,\n    onClosed: () => overlayWindow?.webContents.send("pocket-buddy:home-closed"),\n  });', 'main Home closed IPC')
           path.write_text(text, encoding="utf-8")
 
       - name: Validate patched runtime
@@ -288,7 +253,7 @@ jobs:
         run: |
           rm .github/workflows/patch-free-home-motion.yml
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "418982105+github-actions[bot]@users.noreply.github.com"
           git add src/buddy/pet-runtime.js desktop/pocket-buddy-home-actors.js desktop/tinyhouse-home/pocket-buddy-web-actors.js desktop/canonical-home.mjs desktop/main.mjs .github/workflows/patch-free-home-motion.yml
           git commit -m "fix(home): free actor movement and single Buddy presence"
           git push origin HEAD:fix/home-free-movement-presence
