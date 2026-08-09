@@ -300,6 +300,11 @@
       // Developer-only animation pin used by Pocket Buddy Studio. Empty in
       // normal play, where idle/walk is chosen from actual movement.
       animationOverride: "",
+      // Needs-driven life: what this actor wants, and what it is doing about it.
+      needs: { energy: 0.85, hunger: 0.8, hygiene: 0.85, fun: 0.75, social: 0.8 },
+      plan: null,
+      busyUntil: 0,
+      activity: "",
     };
   }
 
@@ -335,6 +340,95 @@
     return actor.target;
   }
 
+  // ---------------------------------------------------------- needs-driven life
+
+  /** Placed furniture that offers something, with its walkable cell. */
+  function furnitureCandidates(actor) {
+    const affordances = window.PocketBuddyAffordances;
+    const state = window.TinyHousePlayable?.state;
+    const grid = window.TinyHouseStructure?.grid;
+    if (!affordances || !state || !grid) return [];
+
+    const assets = new Map((state.manifest || []).map((asset) => [asset.id, asset]));
+    const candidates = [];
+    for (const placement of state.placements || []) {
+      const asset = assets.get(placement.assetId);
+      if (!asset) continue;
+      const affordance = affordances.affordancesFor(asset)[0];
+      if (!affordance) continue;
+      const cell = { column: Math.round(placement.column), row: Math.round(placement.row) };
+      if (!grid.hasFloor(cell.column, cell.row)) continue;
+      candidates.push({
+        id: placement.id,
+        affordance,
+        cell,
+        label: asset.name || affordance.action,
+        distance: Math.abs(cell.column - actor.cell.column) + Math.abs(cell.row - actor.cell.row),
+      });
+    }
+    return candidates;
+  }
+
+  /**
+   * Decide what an actor wants, walk there through the canonical floor graph,
+   * and let the interaction pay off. Falls back to wandering when nothing is
+   * needed or nothing is reachable, so an empty house still feels alive.
+   */
+  function liveAutonomously(actor, now, dt, speed) {
+    const affordances = window.PocketBuddyAffordances;
+    const pathfinding = window.PocketBuddyPathfinding;
+    const motion = window.PocketBuddyActorMotion;
+    const grid = window.TinyHouseStructure?.grid;
+    if (!affordances || !pathfinding || !motion || !grid) return moveAutonomous(actor, now, dt, speed);
+
+    actor.needs = affordances.decay(actor.needs, dt);
+
+    // Mid-interaction: stay put and take the benefit.
+    if (actor.busyUntil > now && actor.plan?.affordance) {
+      actor.moving = false;
+      actor.needs = affordances.satisfy(actor.needs, actor.plan.affordance, dt);
+      return;
+    }
+    if (actor.busyUntil && actor.busyUntil <= now) {
+      actor.busyUntil = 0;
+      actor.plan = null;
+      actor.activity = "";
+    }
+
+    if (!actor.plan) {
+      const chosen = affordances.chooseAction(furnitureCandidates(actor), actor.needs);
+      const path = chosen ? pathfinding.findPath(grid, actor.cell, chosen.cell) : [];
+      if (chosen && path.length) {
+        actor.plan = { affordance: chosen.affordance, path, label: chosen.label };
+        actor.activity = `${chosen.affordance.action} · ${chosen.label}`;
+      } else {
+        actor.activity = "";
+        return moveAutonomous(actor, now, dt, speed);
+      }
+    }
+
+    actor.plan.path = pathfinding.advancePath(actor.plan.path, actor.cell);
+    const next = actor.plan.path[0];
+    // advancePath always keeps the final waypoint so the actor has something to
+    // steer at, which means an empty path is not how arrival shows up: standing
+    // on the last node is. Without this the actor reached the furniture and
+    // then stood there forever while its needs kept draining.
+    const arrived = !next
+      || (actor.plan.path.length === 1
+        && Math.hypot(next.column - actor.cell.column, next.row - actor.cell.row) <= 0.4);
+    if (arrived) {
+      actor.busyUntil = now + actor.plan.affordance.seconds * 1000;
+      actor.plan.path = [];
+      actor.moving = false;
+      return;
+    }
+
+    const result = motion.moveToward(grid, actor.cell, next, dt, speed, 4);
+    applyMotion(actor, result);
+    // Blocked (a door closed behind us, furniture moved): re-plan next tick.
+    if (!result.moved && !result.reached) actor.plan = null;
+  }
+
   function moveAutonomous(actor, now, dt, speed) {
     if (!actor) return;
     const motion = window.PocketBuddyActorMotion;
@@ -357,12 +451,12 @@
       } else buddy.moving = false;
       return;
     }
-    moveAutonomous(buddy, now, dt, BUDDY_IDLE_SPEED_PX);
+    liveAutonomously(buddy, now, dt, BUDDY_IDLE_SPEED_PX);
   }
 
   function maybeMoveIdleHuman(now, dt) {
     if (!human || mode !== "idle") return;
-    moveAutonomous(human, now, dt, HUMAN_IDLE_SPEED_PX);
+    liveAutonomously(human, now, dt, HUMAN_IDLE_SPEED_PX);
   }
 
   function renderActor(actor, now) {
@@ -464,6 +558,9 @@
       scale: actor.scale,
       // Surfaced so Studio can show why a character faces the way it does.
       appearance: actor.art.stateName,
+      needs: { ...actor.needs },
+      activity: actor.activity || "",
+      busy: actor.busyUntil > performance.now(),
       mirroredAnimations: Boolean(actor.art.mirroredAnimations),
       frameSrc: actor.lastPath,
       attached: actor.image.isConnected,
