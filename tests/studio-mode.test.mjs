@@ -399,3 +399,59 @@ test("the in-game control bar is actually inserted into the Home shell", () => {
     assert.ok(desktop.includes(`"${label}`), `control bar must offer ${label}`);
   }
 });
+
+// ------------------------------------------------ transparent desktop Home
+
+test("Home can run as a transparent desktop overlay without a second renderer", () => {
+  const home = read("desktop/canonical-home.mjs");
+  const overlayJs = read("desktop/home-overlay.js");
+  const overlayCss = read("desktop/tinyhouse-home/overlay.css");
+  const index = read("desktop/tinyhouse-home/index.html");
+
+  // Overlay mode is a window contract plus a stylesheet on the same canonical
+  // Home page — not a reimplementation of the house.
+  assert.match(home, /mode: value\?\.mode === "desktop" \? "desktop" : "window"/);
+  assert.match(home, /transparent: overlay/);
+  assert.match(home, /frame: !overlay/);
+  assert.match(home, /function applyOverlayContract\(/);
+  // The overlay shell decorates the real Home; it must not paint a house.
+  assert.doesNotMatch(overlayJs, /createElement\("canvas"\)/);
+  assert.doesNotMatch(overlayJs, /floor-layer|wall-layer/);
+
+  // Transparency and frame cannot change on a live window, so the mode switch
+  // must rebuild rather than pretend.
+  assert.match(home, /currentMode !== currentConfig\.mode/);
+  assert.match(home, /stale\.destroy\(\)/);
+
+  assert.match(index, /overlay\.css/);
+  assert.match(overlayCss, /\[data-pb-home-mode="desktop"\]/);
+  assert.match(overlayCss, /#pb-home-launcher/);
+});
+
+test("overlay mode is click-through except over real content", () => {
+  const overlayJs = read("desktop/home-overlay.js");
+  const preload = read("desktop/home-preload.cjs");
+  const main = read("desktop/main.mjs");
+
+  // Empty space must fall through to the desktop, so interactivity is decided
+  // from the canonical grid rather than from a full-window hit target.
+  assert.match(overlayJs, /function overHouse\(/);
+  assert.match(overlayJs, /grid\.hasFloor\(column \+ dc, row \+ dr\)/);
+  assert.match(overlayJs, /bridge\?\.setInteractive\?\.\(next\)/);
+  // Space is the builder's pan modifier and must capture the pointer.
+  assert.match(overlayJs, /spaceDown/);
+
+  assert.match(preload, /pocket-buddy:home-set-interactive/);
+  assert.match(main, /canonicalHome\.setInteractive\(Boolean\(interactive\)\)/);
+});
+
+test("closing Home never throws when the overlay is already gone", () => {
+  const main = read("desktop/main.mjs");
+  const home = read("desktop/canonical-home.mjs");
+
+  // Quitting, or a mode switch that rebuilds the window, can close Home while
+  // the desktop overlay is being torn down; touching webContents on a
+  // destroyed window crashed the main process.
+  assert.match(main, /if \(overlayWindow && !overlayWindow\.isDestroyed\(\)\) \{/);
+  assert.match(home, /try \{ onClosed\(\); \} catch/);
+});

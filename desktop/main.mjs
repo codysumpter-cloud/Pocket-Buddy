@@ -22,6 +22,9 @@ let quitting = false;
 let displayRefreshTimer = null;
 let bundledArtCache = new Map();
 let selectedMonitor = "primary";
+// Home renders as a transparent desktop overlay by default; "window" restores
+// the original framed window.
+let homeMode = "desktop";
 let desktopPrefsPath = null;
 let canonicalHome = null;
 let studio = null;
@@ -108,6 +111,7 @@ async function loadDesktopPreferences() {
     if (typeof parsed?.selectedMonitor === "string" && (parsed.selectedMonitor === "primary" || /^-?\d+$/.test(parsed.selectedMonitor))) {
       selectedMonitor = parsed.selectedMonitor;
     }
+    if (parsed?.homeMode === "desktop" || parsed?.homeMode === "window") homeMode = parsed.homeMode;
   } catch (error) {
     if (error?.code !== "ENOENT") console.warn("Pocket Buddy desktop preferences could not be read", error);
   }
@@ -116,7 +120,7 @@ async function loadDesktopPreferences() {
 async function saveDesktopPreferences() {
   if (!desktopPrefsPath) desktopPrefsPath = join(app.getPath("userData"), DESKTOP_PREFS_FILE);
   await mkdir(dirname(desktopPrefsPath), { recursive: true });
-  await writeFile(desktopPrefsPath, `${JSON.stringify({ selectedMonitor }, null, 2)}\n`, "utf8");
+  await writeFile(desktopPrefsPath, `${JSON.stringify({ selectedMonitor, homeMode }, null, 2)}\n`, "utf8");
 }
 
 function applySelectedMonitorBounds() {
@@ -401,7 +405,8 @@ ipcMain.handle("pocket-buddy:open-home", async (event, options) => {
     throw new Error("Canonical Home can only be opened by Pocket Buddy.");
   }
   if (!canonicalHome) throw new Error("Canonical Home is not ready yet.");
-  return canonicalHome.open(options);
+  // The mode is a desktop-shell preference, not something the page chooses.
+  return canonicalHome.open({ ...(options ?? {}), mode: homeMode });
 });
 ipcMain.on("pocket-buddy:close-home", (event) => {
   if (overlayWindow && !overlayWindow.isDestroyed() && event.sender === overlayWindow.webContents) canonicalHome?.close();
@@ -428,6 +433,21 @@ ipcMain.on("pocket-buddy:home-quit", (event) => {
   quitting = true;
   app.quit();
 });
+ipcMain.on("pocket-buddy:home-set-interactive", (event, interactive) => {
+  if (!canonicalHome?.owns(event.sender)) return;
+  canonicalHome.setInteractive(Boolean(interactive));
+});
+ipcMain.on("pocket-buddy:home-set-mode", (event, mode) => {
+  if (!canonicalHome?.owns(event.sender)) return;
+  const value = String(mode ?? "");
+  if (!["desktop", "window"].includes(value) || value === homeMode) return;
+  homeMode = value;
+  void saveDesktopPreferences();
+  // Transparency cannot change on a live window, so reopen through the normal
+  // renderer path that carries the verified art hashes.
+  canonicalHome.close();
+  setTimeout(() => sendCommand("home"), 120);
+});
 
 app.whenReady().then(async () => {
   app.setName("Pocket Buddy");
@@ -453,7 +473,14 @@ app.whenReady().then(async () => {
     getWorkArea: selectedWorkArea,
     getArtEntries: discoverBundledArt,
     readArtBytes: readBundledArt,
-    onClosed: () => overlayWindow?.webContents.send("pocket-buddy:home-closed"),
+    // Guarded: Home can close while the overlay is already being torn down
+    // (quit, or a mode switch that rebuilds the window), and touching
+    // webContents on a destroyed window throws in the main process.
+    onClosed: () => {
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.webContents.send("pocket-buddy:home-closed");
+      }
+    },
     isStudioEnabled: () => Boolean(studio?.isEnabled()),
     onReady: (contents) => {
       const window = contents ? BrowserWindow.fromWebContents(contents) : null;
