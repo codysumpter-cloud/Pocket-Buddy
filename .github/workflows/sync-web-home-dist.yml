@@ -1,0 +1,33 @@
+name: Sync canonical web Home dist
+
+on:
+  push:
+    branches:
+      - fix/windows-home-art-scale-motion
+    paths:
+      - .github/workflows/sync-web-home-dist.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/windows-home-art-scale-motion
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Commit deterministic generated bundles
+        run: |
+          rm .github/workflows/sync-web-home-dist.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist ':!dist/extension.zip' .github/workflows/sync-web-home-dist.yml
+          git commit -m "build: sync canonical web Home bundles"
+          git push origin HEAD:fix/windows-home-art-scale-motion
