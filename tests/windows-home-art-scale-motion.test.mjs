@@ -14,6 +14,7 @@ const desktopPreload = read("desktop/preload.cjs");
 const canonicalHome = read("desktop/canonical-home.mjs");
 const actorBridge = read("desktop/pocket-buddy-home-actors.js");
 const webActorBridge = read("desktop/tinyhouse-home/pocket-buddy-web-actors.js");
+const actorMotion = read("desktop/tinyhouse-home/actor-motion-core.js");
 const donorIndex = read("desktop/tinyhouse-home/index.html");
 const donorCommit = read("desktop/tinyhouse-home/POCKETBUDDYPLUS_DONOR_COMMIT").trim();
 const donorApp = read("desktop/tinyhouse-home/app.js");
@@ -36,12 +37,14 @@ test("web Home delegates to a same-origin copy of the exact donor instead of dra
   assert.match(home, /url\.origin !== window\.location\.origin/);
   assert.match(home, /pb-web-home-frame/);
   assert.match(home, /donor: "6e4a80775f8a7f5b0d243b0a9f50e6653526219b"/);
+  assert.match(donorIndex, /actor-motion-core\.js/);
   assert.match(donorIndex, /pocket-buddy-web-actors\.js/);
   assert.match(webActorBridge, /window\.parent\.PocketBuddy/);
   assert.match(webActorBridge, /TINYHOUSE_ASSETS_READY/);
   assert.match(webActorBridge, /runtime\.runtimeFor/);
-  assert.match(webActorBridge, /TinyHousePlayable\.cellCenter/);
-  assert.match(webActorBridge, /grid\.canTraverse|canTraverse\(from, to\)/);
+  assert.match(webActorBridge, /PocketBuddyActorMotion/);
+  assert.match(actorMotion, /TinyHouseGridCore\.cellCenter/);
+  assert.match(actorMotion, /canTraverse/);
   assert.match(webActorBridge, /scaleMultiplier/);
   assert.match(webActorBridge, /uiScaleMultiplier/);
   assert.match(webActorBridge, /humanArt, 1\.2/);
@@ -80,9 +83,10 @@ test("canonical Home server feeds the verified TinyHouse ZIP into the donor load
 });
 
 test("Ani and Buddy actors use donor world coordinates, wall traversal, and native PixelLab frames", () => {
-  assert.match(actorBridge, /TinyHousePlayable\.cellCenter/);
+  assert.match(actorBridge, /PocketBuddyActorMotion/);
   assert.match(actorBridge, /TinyHouseStructure/);
-  assert.match(actorBridge, /grid\.canTraverse|canTraverse\(from, to\)/);
+  assert.match(actorMotion, /TinyHouseGridCore\.cellCenter/);
+  assert.match(actorMotion, /canTraverse/);
   assert.match(actorBridge, /metadata\.json/);
   assert.match(actorBridge, /ani_idle/);
   assert.match(actorBridge, /ani_walk/);
