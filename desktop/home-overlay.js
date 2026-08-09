@@ -290,8 +290,28 @@
     }
   }
 
+  /**
+   * The life controls ship as their own absolutely-positioned bar. On the
+   * desktop overlay that landed on top of the launcher and ran off the right
+   * edge of the screen, so fold its buttons into the single launcher bar.
+   */
+  function absorbLifeControls(attempt = 0) {
+    const bar = $("#pb-home-launcher");
+    const controls = $("#pb-home-life-controls");
+    if (!bar) return;
+    if (!controls) {
+      if (attempt < 40) setTimeout(() => absorbLifeControls(attempt + 1), 250);
+      return;
+    }
+    if (controls.dataset.pbAbsorbed === "true") return;
+    controls.dataset.pbAbsorbed = "true";
+    bar.append(...controls.querySelectorAll("button"));
+    controls.remove();
+  }
+
   function boot() {
     buildLauncher();
+    absorbLifeControls();
     window.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       if (!POPOUTS.some(isOpen)) return;

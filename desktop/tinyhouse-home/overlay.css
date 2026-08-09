@@ -9,6 +9,9 @@
   transform: translateX(-50%);
   z-index: 500001;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 96vw;
   gap: 5px;
   padding: 6px;
   pointer-events: auto;
@@ -124,3 +127,9 @@
   color: #342b2f;
   white-space: nowrap;
 }
+
+/* One bar only: the life controls are folded into the launcher. */
+[data-pb-home-mode="desktop"] #pb-home-life-controls { display: none !important; }
+
+/* Sit clear of a wrapped launcher rather than overlapping it. */
+#pb-home-interact-prompt { bottom: auto; top: 14px; }

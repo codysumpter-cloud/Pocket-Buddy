@@ -67,8 +67,12 @@ test("canonical donor keeps the verified 128x64 isometric geometry", () => {
 });
 
 test("canonical Home server feeds the verified TinyHouse ZIP into the donor loader without extraction or substitution", () => {
-  assert.match(canonicalHome, /127\.0\.0\.1/);
-  assert.match(canonicalHome, /\/home\/index\.html\?pack=\/pack\//);
+  // Home is served from a fixed custom-scheme origin rather than an HTTP
+  // server on a random port, so localStorage survives a restart.
+  assert.match(canonicalHome, /HOME_SCHEME/);
+  assert.match(canonicalHome, /protocol\.handle\(HOME_SCHEME/);
+  assert.doesNotMatch(canonicalHome, /127\.0\.0\.1/);
+  assert.match(canonicalHome, /\/index\.html\?pack=\/pack\//);
   assert.match(canonicalHome, /kind === "environment"/);
   assert.match(canonicalHome, /Home will not substitute fake art/);
   assert.match(canonicalHome, /part\.trim\(\)/);

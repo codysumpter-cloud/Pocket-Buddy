@@ -1,5 +1,5 @@
-import { BrowserWindow } from "electron";
-import { createServer } from "node:http";
+import { BrowserWindow, protocol } from "electron";
+import { HOME_SCHEME } from "./home-scheme.mjs";
 import { readFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -189,8 +189,7 @@ export function createCanonicalHomeManager({
   onReady = () => {},
 }) {
   let homeWindow = null;
-  let server = null;
-  let baseUrl = "";
+  let handlerInstalled = false;
   let currentConfig = null;
   let currentMode = "window";
   const archiveCache = new Map();
@@ -240,63 +239,79 @@ export function createCanonicalHomeManager({
     return send(res, 200, body, mimeFor(decoded));
   }
 
-  async function requestHandler(req, res) {
-    try {
-      const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      if (url.pathname === "/" || url.pathname === "/home") {
-        res.writeHead(302, { Location: "/home/index.html?pack=/pack/", "Cache-Control": "no-store" });
-        return res.end();
-      }
-      if (url.pathname === "/bridge/pocket-buddy-home-actors.js") {
-        return send(res, 200, await readFile(ACTOR_BRIDGE), "text/javascript; charset=utf-8");
-      }
-      if (url.pathname === "/bridge/home-overlay.js") {
-        return send(res, 200, await readFile(OVERLAY_BRIDGE), "text/javascript; charset=utf-8");
-      }
-      if (url.pathname.startsWith("/pack/")) {
-        return serveArchivePath(res, await resolveEnvironment(), url.pathname.slice("/pack/".length));
-      }
-      if (url.pathname.startsWith("/private/")) {
-        const rest = url.pathname.slice("/private/".length);
-        const slash = rest.indexOf("/");
-        if (slash <= 0) return send(res, 404, "Not found");
-        const sha = rest.slice(0, slash).toLowerCase();
-        if (!SHA256_RE.test(sha)) return send(res, 400, "Invalid private art hash");
-        const entry = await entryBySha(sha);
-        if (!entry) return send(res, 404, "Private art pack not registered");
-        return serveArchivePath(res, entry, rest.slice(slash + 1));
-      }
-      if (url.pathname.startsWith("/home/")) {
-        const target = safeHomePath(url.pathname.slice("/home/".length));
-        if (!target) return send(res, 400, "Invalid Home path");
-        let body = await readFile(target);
-        if (target.endsWith("index.html")) {
-          const config = JSON.stringify(currentConfig ?? {}).replace(/</g, "\\u003c");
-              const injection = `<script>window.POCKET_BUDDY_HOME_CONFIG=Object.freeze(${config});</script>`
-            + `<script src="/bridge/pocket-buddy-home-actors.js"></script>`
-            + `<script src="/bridge/home-overlay.js"></script>`;
-          body = Buffer.from(body.toString("utf8").replace("</body>", `${injection}</body>`), "utf8");
-        }
-        return send(res, 200, body, mimeFor(target));
-      }
-      return send(res, 404, "Not found");
-    } catch (error) {
-      console.error("Pocket Buddy canonical Home server error", error);
-      return send(res, 500, error instanceof Error ? error.message : String(error));
+  /**
+   * Serve Home from a fixed custom-scheme origin.
+   *
+   * This used to be an HTTP server on port 0. A random port meant a different
+   * origin every launch, and localStorage is origin-scoped, so the saved house,
+   * furniture, Cozy state and actor needs were all silently discarded on
+   * restart. A stable origin makes every one of those persist.
+   */
+  async function resolveRequest(url) {
+    const path = decodeURIComponent(url.pathname || "/");
+
+    if (path === "/" || path === "") {
+      return new Response(null, { status: 302, headers: { Location: `${HOME_SCHEME}://home/index.html?pack=/pack/` } });
     }
+    if (path === "/bridge/pocket-buddy-home-actors.js") {
+      return bytesResponse(await readFile(ACTOR_BRIDGE), "text/javascript; charset=utf-8");
+    }
+    if (path === "/bridge/home-overlay.js") {
+      return bytesResponse(await readFile(OVERLAY_BRIDGE), "text/javascript; charset=utf-8");
+    }
+    if (path.startsWith("/pack/")) {
+      return archiveResponse(await resolveEnvironment(), path.slice("/pack/".length));
+    }
+    if (path.startsWith("/private/")) {
+      const rest = path.slice("/private/".length);
+      const slash = rest.indexOf("/");
+      if (slash <= 0) return new Response("Not found", { status: 404 });
+      const sha = rest.slice(0, slash).toLowerCase();
+      if (!SHA256_RE.test(sha)) return new Response("Invalid private art hash", { status: 400 });
+      const entry = await entryBySha(sha);
+      if (!entry) return new Response("Private art pack not registered", { status: 404 });
+      return archiveResponse(entry, rest.slice(slash + 1));
+    }
+
+    const target = safeHomePath(path.replace(/^\/+/, ""));
+    if (!target) return new Response("Invalid Home path", { status: 400 });
+    let body = await readFile(target);
+    if (target.endsWith("index.html")) {
+      const config = JSON.stringify(currentConfig ?? {}).replace(/</g, "\\u003c");
+      const injection = `<script>window.POCKET_BUDDY_HOME_CONFIG=Object.freeze(${config});</script>`
+        + `<script src="/bridge/pocket-buddy-home-actors.js"></script>`
+        + `<script src="/bridge/home-overlay.js"></script>`;
+      body = Buffer.from(body.toString("utf8").replace("</body>", `${injection}</body>`), "utf8");
+    }
+    return bytesResponse(body, mimeFor(target));
   }
 
-  async function ensureServer() {
-    if (server && baseUrl) return baseUrl;
-    server = createServer((req, res) => { void requestHandler(req, res); });
-    await new Promise((resolvePromise, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => resolvePromise());
+  function bytesResponse(buffer, type) {
+    return new Response(Uint8Array.from(buffer), {
+      status: 200,
+      headers: { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" },
     });
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Pocket Buddy Home server did not receive a local port.");
-    baseUrl = `http://127.0.0.1:${address.port}`;
-    return baseUrl;
+  }
+
+  async function archiveResponse(entry, rawPath) {
+    const archive = await archiveFor(entry);
+    const body = archive.read(decodeURIComponent(rawPath));
+    if (!body) return new Response("Not found", { status: 404 });
+    return bytesResponse(body, mimeFor(rawPath));
+  }
+
+  function ensureProtocol() {
+    if (handlerInstalled) return `${HOME_SCHEME}://home`;
+    protocol.handle(HOME_SCHEME, async (request) => {
+      try {
+        return await resolveRequest(new URL(request.url));
+      } catch (error) {
+        console.error("Pocket Buddy Home request failed", error);
+        return new Response(error instanceof Error ? error.message : String(error), { status: 500 });
+      }
+    });
+    handlerInstalled = true;
+    return `${HOME_SCHEME}://home`;
   }
 
   async function validateConfig(options) {
@@ -326,7 +341,7 @@ export function createCanonicalHomeManager({
 
   async function open(options = {}) {
     currentConfig = { ...(await validateConfig(options)), studio: Boolean(isStudioEnabled()) };
-    const url = await ensureServer();
+    const url = ensureProtocol();
     const overlay = currentConfig.mode === "desktop";
 
     // Transparency and frame cannot be toggled on a live BrowserWindow, so a
@@ -383,10 +398,10 @@ export function createCanonicalHomeManager({
         homeWindow?.focus();
       });
     }
-    await homeWindow.loadURL(`${url}/home/index.html?pack=/pack/`);
+    await homeWindow.loadURL(`${url}/index.html?pack=/pack/`);
     if (!homeWindow.isVisible()) homeWindow.show();
     homeWindow.focus();
-    return { ok: true, url: `${url}/home/index.html`, donor: "6e4a80775f8a7f5b0d243b0a9f50e6653526219b" };
+    return { ok: true, url: `${url}/index.html`, donor: "6e4a80775f8a7f5b0d243b0a9f50e6653526219b" };
   }
 
   function reclamp() {
@@ -421,9 +436,10 @@ export function createCanonicalHomeManager({
   async function dispose() {
     close();
     archiveCache.clear();
-    if (server) await new Promise((resolvePromise) => server.close(() => resolvePromise()));
-    server = null;
-    baseUrl = "";
+    if (handlerInstalled) {
+      protocol.unhandle(HOME_SCHEME);
+      handlerInstalled = false;
+    }
   }
 
   function webContents() {

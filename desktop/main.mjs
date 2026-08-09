@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, protocol, screen } from "electron";
 import { createCanonicalHomeManager } from "./canonical-home.mjs";
+import { HOME_SCHEME } from "./home-scheme.mjs";
 import { createStudioManager } from "./studio/studio-main.mjs";
 import { STUDIO_TRAY_LABEL, devToolsShortcutsEnabled, homeAutoOpen, studioAutoOpen, studioEnabled } from "./studio/studio-gate.mjs";
 import { createHash } from "node:crypto";
@@ -59,6 +60,14 @@ function installDevToolsShortcuts(window) {
 if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 }
+
+// Must happen before app ready. Marking the scheme standard and secure gives
+// Home a stable origin with a working localStorage, which is what makes saved
+// houses, furniture, Cozy state and actor needs survive a restart.
+protocol.registerSchemesAsPrivileged([{
+  scheme: HOME_SCHEME,
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
+}]);
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
