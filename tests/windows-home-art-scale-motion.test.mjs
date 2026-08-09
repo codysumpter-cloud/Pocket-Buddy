@@ -13,6 +13,8 @@ const desktopRenderer = read("desktop/renderer.js");
 const desktopPreload = read("desktop/preload.cjs");
 const canonicalHome = read("desktop/canonical-home.mjs");
 const actorBridge = read("desktop/pocket-buddy-home-actors.js");
+const webActorBridge = read("desktop/tinyhouse-home/pocket-buddy-web-actors.js");
+const donorIndex = read("desktop/tinyhouse-home/index.html");
 const donorCommit = read("desktop/tinyhouse-home/POCKETBUDDYPLUS_DONOR_COMMIT").trim();
 const donorApp = read("desktop/tinyhouse-home/app.js");
 const donorGrid = read("desktop/tinyhouse-home/house-grid-core.js");
@@ -27,6 +29,23 @@ test("Windows Home delegates to the exact vendored PocketBuddy+ TinyHouse runtim
   assert.doesNotMatch(home, /function diamond\(/);
   assert.doesNotMatch(home, /drawFurniture/);
   assert.doesNotMatch(home, /fallbackHuman/);
+});
+
+test("web Home delegates to a same-origin copy of the exact donor instead of drawing another room", () => {
+  assert.match(home, /POCKET_BUDDY_WEB_HOME_URL/);
+  assert.match(home, /url\.origin !== window\.location\.origin/);
+  assert.match(home, /pb-web-home-frame/);
+  assert.match(home, /donor: "6e4a80775f8a7f5b0d243b0a9f50e6653526219b"/);
+  assert.match(donorIndex, /pocket-buddy-web-actors\.js/);
+  assert.match(webActorBridge, /window\.parent\.PocketBuddy/);
+  assert.match(webActorBridge, /TINYHOUSE_ASSETS_READY/);
+  assert.match(webActorBridge, /runtime\.runtimeFor/);
+  assert.match(webActorBridge, /TinyHousePlayable\.cellCenter/);
+  assert.match(webActorBridge, /grid\.canTraverse|canTraverse\(from, to\)/);
+  assert.match(webActorBridge, /scaleMultiplier/);
+  assert.match(webActorBridge, /uiScaleMultiplier/);
+  assert.match(webActorBridge, /humanArt, 1\.2/);
+  assert.doesNotMatch(webActorBridge, /fallbackHuman|function diamond\(/);
 });
 
 test("canonical donor keeps the verified 128x64 isometric geometry", () => {
@@ -79,6 +98,7 @@ test("Home and custom pets honor Pocket Bird scale settings without shrinking An
   assert.match(home, /petRuntime\.scaleMultiplier\(\)/);
   assert.match(home, /petRuntime\.uiScaleMultiplier\(\)/);
   assert.match(actorBridge, /--pb-home-ui-scale/);
+  assert.match(webActorBridge, /--pb-home-ui-scale/);
   assert.doesNotMatch(home, /\.64/);
   assert.doesNotMatch(actorBridge, /humanScale[^\n]*0\.64/);
 });
@@ -96,6 +116,8 @@ test("custom pets reuse Pocket Bird affection feedback", () => {
   assert.match(runtime, /reaction === "pet"/);
   assert.match(actorBridge, /♥/);
   assert.match(actorBridge, /care\?\.\("pet"\)/);
+  assert.match(webActorBridge, /♥/);
+  assert.match(webActorBridge, /buddyApi\.care\?\.\("pet"\)/);
 });
 
 test("desktop seeds broad invisible perch targets before Pocket Buddy boots", () => {
