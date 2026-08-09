@@ -173,7 +173,17 @@ function boundedWindowBounds(workArea, prior = null) {
   return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
 }
 
-export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArtBytes, onClosed = () => {} }) {
+export function createCanonicalHomeManager({
+  getWorkArea,
+  getArtEntries,
+  readArtBytes,
+  onClosed = () => {},
+  // Developer-tool hooks. `isStudioEnabled` decides whether Home advertises the
+  // Studio bridge to its own runtime; `onReady` lets Studio attach to the real
+  // Home webContents. Both are inert in production.
+  isStudioEnabled = () => false,
+  onReady = () => {},
+}) {
   let homeWindow = null;
   let server = null;
   let baseUrl = "";
@@ -297,7 +307,7 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
   }
 
   async function open(options = {}) {
-    currentConfig = await validateConfig(options);
+    currentConfig = { ...(await validateConfig(options)), studio: Boolean(isStudioEnabled()) };
     const url = await ensureServer();
     if (!homeWindow || homeWindow.isDestroyed()) {
       homeWindow = new BrowserWindow({
@@ -320,6 +330,11 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
       });
       homeWindow.setMenuBarVisibility(false);
       homeWindow.on("closed", () => { homeWindow = null; onClosed(); });
+      // Re-runs on every navigation/reload so developer tooling survives a
+      // Studio reload without duplicating the Home window itself.
+      homeWindow.webContents.on("did-finish-load", () => {
+        try { onReady(homeWindow?.webContents ?? null); } catch { /* developer tooling only */ }
+      });
       homeWindow.once("ready-to-show", () => {
         reclamp();
         homeWindow?.show();
@@ -353,5 +368,13 @@ export function createCanonicalHomeManager({ getWorkArea, getArtEntries, readArt
     baseUrl = "";
   }
 
-  return { open, close, reclamp, owns, dispose };
+  function webContents() {
+    return homeWindow && !homeWindow.isDestroyed() ? homeWindow.webContents : null;
+  }
+
+  function isOpen() {
+    return Boolean(homeWindow && !homeWindow.isDestroyed());
+  }
+
+  return { open, close, reclamp, owns, dispose, webContents, isOpen };
 }

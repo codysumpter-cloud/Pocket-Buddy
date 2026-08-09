@@ -123,6 +123,8 @@
     image.style.cssText = "position:absolute;image-rendering:pixelated;user-select:none;-webkit-user-drag:none;transform-origin:50% 100%;pointer-events:auto;filter:drop-shadow(0 3px 0 rgba(25,19,25,.22));";
     document.querySelector("#item-layer")?.append(image);
     return {
+      id,
+      label: art.label,
       image,
       art,
       scale,
@@ -133,6 +135,9 @@
       lastPath: "",
       target: null,
       targetUntil: 0,
+      // Developer-only animation pin used by Pocket Buddy Studio. Empty in
+      // normal play, where idle/walk is chosen from actual movement.
+      animationOverride: "",
     };
   }
 
@@ -201,7 +206,7 @@
   function renderActor(actor, now) {
     if (!actor) return;
     const point = worldPoint(actor.cell);
-    const animation = actor.moving ? actor.art.walkName : actor.art.idleName;
+    const animation = actor.animationOverride || (actor.moving ? actor.art.walkName : actor.art.idleName);
     const count = actor.art.frameCount(animation, actor.direction);
     const index = count <= 1 ? 0 : Math.floor(now / (actor.moving ? 110 : 230)) % count;
     const path = actor.art.framePath(animation, actor.direction, index);
@@ -267,6 +272,68 @@
     document.head.append(style);
   }
 
+  // Developer-only inspection surface for Pocket Buddy Studio.
+  //
+  // Only installed when the main process injected `studio: true` into the Home
+  // config, which itself only happens in an unpackaged build or under an
+  // explicit POCKET_BUDDY_STUDIO opt-in. Production Home exposes nothing.
+  function installStudioBridge() {
+    if (!config.studio || window.PocketBuddyHomeStudio) return;
+    const actorFor = (id) => [human, buddy].find((actor) => actor && actor.id === id) || null;
+    const readable = (actor) => (actor ? {
+      id: actor.id,
+      label: actor.label,
+      cell: { ...actor.cell },
+      radius: window.PocketBuddyActorMotion?.DEFAULT_RADIUS ?? 0.1,
+      direction: actor.direction,
+      moving: actor.moving,
+      animation: actor.animationOverride || (actor.moving ? actor.art.walkName : actor.art.idleName),
+      scale: actor.scale,
+    } : null);
+
+    window.PocketBuddyHomeStudio = Object.freeze({
+      actors: () => [human, buddy].filter(Boolean).map(readable),
+      actor: (id) => readable(actorFor(id)),
+      mode: () => mode,
+      setMode(next) {
+        if (!["play", "idle"].includes(String(next))) return mode;
+        mode = String(next);
+        if (mode === "idle") keys.clear();
+        if (human) human.target = null;
+        return mode;
+      },
+      buddyName: () => config.buddyName || "Buddy",
+      animationNames: (id) => {
+        const actor = actorFor(id);
+        return actor ? Object.keys(actor.art.animations || {}) : [];
+      },
+      setAnimation(id, animation) {
+        const actor = actorFor(id);
+        if (!actor) return null;
+        const names = Object.keys(actor.art.animations || {});
+        actor.animationOverride = names.includes(String(animation)) ? String(animation) : "";
+        actor.lastPath = "";
+        return readable(actor);
+      },
+      /**
+       * Screen-space nudge routed through the canonical motion core, so walls,
+       * closed doors and floor bounds still apply and the resulting position
+       * stays continuous. Studio must never reintroduce tile snapping.
+       */
+      nudge(id, dx, dy) {
+        const actor = actorFor(id);
+        const magnitude = Math.hypot(Number(dx) || 0, Number(dy) || 0);
+        if (!actor || magnitude <= 0) return readable(actor);
+        // moveScreen clamps dt to 0.05s, so scale speed to land on exact pixels.
+        applyMotion(actor, window.PocketBuddyActorMotion.moveScreen(
+          window.TinyHouseStructure.grid, actor.cell, Number(dx) || 0, Number(dy) || 0, 0.05, magnitude * 20,
+        ));
+        actor.target = null;
+        return readable(actor);
+      },
+    });
+  }
+
   function typingTarget(target) {
     return target instanceof Element && Boolean(target.closest("input,textarea,select,[contenteditable='true']"));
   }
@@ -308,6 +375,7 @@
 
     installControls();
     installInput();
+    installStudioBridge();
     requestAnimationFrame(loop);
   }
 

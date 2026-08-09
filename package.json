@@ -19,6 +19,8 @@
     "test:tinyhouse-local": "node desktop/tinyhouse-home/test-contract.mjs && node desktop/tinyhouse-home/test-drag-contract.mjs && node desktop/tinyhouse-home/test-wall-contract.mjs && node desktop/tinyhouse-home/test-house-grid-contract.mjs && node desktop/tinyhouse-home/test-room-templates-contract.mjs && node desktop/tinyhouse-home/test-rotation-camera-contract.mjs && node desktop/tinyhouse-home/test-cozy-contract.mjs",
     "desktop": "npm run build && electron .",
     "desktop:dev": "npm run build && electron .",
+    "desktop:watch": "node scripts/dev-watch.mjs",
+    "desktop:studio": "node scripts/dev-watch.mjs --studio",
     "package:desktop": "npm run build && electron-builder --config desktop/electron-builder.yml",
     "package:desktop:win": "npm run build && electron-builder --win --config desktop/electron-builder.yml",
     "package:desktop:mac": "npm run build && electron-builder --mac --universal --config desktop/electron-builder.yml"

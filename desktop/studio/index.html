@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pocket Buddy Studio</title>
+  <link rel="stylesheet" href="./studio.css" />
+</head>
+<body>
+  <header id="toolbar">
+    <div class="brand">POCKET BUDDY <strong>STUDIO</strong></div>
+
+    <div class="group" role="group" aria-label="Surface">
+      <button type="button" class="surface-tab active" data-surface="home">HOME</button>
+      <button type="button" class="surface-tab" data-surface="desktop">DESKTOP</button>
+    </div>
+
+    <div class="group" role="group" aria-label="Run state">
+      <button type="button" class="state-button" data-state="play">▶ PLAY</button>
+      <button type="button" class="state-button" data-state="idle">◐ IDLE</button>
+      <button type="button" class="state-button" data-state="build">▣ BUILD</button>
+    </div>
+
+    <div class="group">
+      <label class="field">
+        <span>Structure</span>
+        <select id="structure-mode">
+          <option value="furnish">Furnish</option>
+          <option value="add-floor">+ Floor</option>
+          <option value="remove-floor">− Floor</option>
+          <option value="wall">+ Wall</option>
+          <option value="door">+ Door</option>
+          <option value="erase-edge">− Edge</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="group push">
+      <button type="button" id="pick-button" title="Click an element in the live window">⌖ PICK</button>
+      <button type="button" id="open-home">OPEN HOME</button>
+      <button type="button" id="devtools">DEVTOOLS</button>
+      <button type="button" id="reload">RELOAD</button>
+      <button type="button" id="relaunch">RESTART</button>
+    </div>
+  </header>
+
+  <main id="layout">
+    <section id="hierarchy" aria-label="Hierarchy">
+      <h2>Hierarchy</h2>
+      <div id="tree" class="scroll"></div>
+    </section>
+
+    <section id="stage" aria-label="Viewport">
+      <div id="viewport-frame">
+        <img id="viewport" alt="Live Pocket Buddy window" draggable="false" />
+        <div id="viewport-empty">Waiting for the live window…</div>
+      </div>
+      <div id="presence-bar">
+        <span id="presence-owner" class="pill">presence: —</span>
+        <span id="presence-buddy" class="pill">buddy: —</span>
+        <span id="presence-mode" class="pill">mode: —</span>
+        <span id="grid-stats" class="pill">grid: —</span>
+        <span id="camera-stats" class="pill">camera: —</span>
+      </div>
+    </section>
+
+    <section id="inspector" aria-label="Inspector">
+      <h2>Inspector</h2>
+      <div class="scroll">
+        <div id="overlay-toggles" class="panel">
+          <h3>Debug overlays</h3>
+          <label><input type="checkbox" id="ov-enabled" /> Enable overlays</label>
+          <label><input type="checkbox" id="ov-walkable" checked /> Walkable cells</label>
+          <label><input type="checkbox" id="ov-edges" checked /> Walls &amp; doors</label>
+          <label><input type="checkbox" id="ov-collision" checked /> Actor collision radii</label>
+          <label><input type="checkbox" id="ov-footprints" /> Furniture footprints</label>
+          <label><input type="checkbox" id="ov-labels" checked /> Coordinate labels</label>
+        </div>
+
+        <div id="actors-panel" class="panel">
+          <h3>Actors</h3>
+          <div id="actors"></div>
+        </div>
+
+        <div id="selection-panel" class="panel">
+          <h3>Selection</h3>
+          <div id="selection">Nothing selected.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="console-panel">
+    <div class="console-head">
+      <h2>Console</h2>
+      <label class="field"><input type="checkbox" id="errors-only" /> errors only</label>
+      <button type="button" id="clear-console">CLEAR</button>
+    </div>
+    <div id="console-log" class="scroll"></div>
+  </footer>
+
+  <script src="./studio.js"></script>
+</body>
+</html>

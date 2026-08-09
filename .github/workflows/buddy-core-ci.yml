@@ -39,7 +39,14 @@ jobs:
           node --check desktop/pocket-buddy-home-actors.js
           node --check desktop/tinyhouse-home/actor-motion-core.js
           node --check desktop/tinyhouse-home/pocket-buddy-web-actors.js
+          node --check desktop/studio/studio-gate.mjs
+          node --check desktop/studio/studio-main.mjs
+          node --check desktop/studio/studio-preload.cjs
+          node --check desktop/studio/studio-scene-core.js
+          node --check desktop/studio/studio-agent.js
+          node --check desktop/studio/studio.js
           node --check scripts/postprocess-build.mjs
+          node --check scripts/dev-watch.mjs
       - name: Build every Pocket Buddy delivery format
         run: npm run build
       - name: Verify generated targets and product identity

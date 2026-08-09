@@ -1,5 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from "electron";
 import { createCanonicalHomeManager } from "./canonical-home.mjs";
+import { createStudioManager } from "./studio/studio-main.mjs";
+import { STUDIO_TRAY_LABEL, devToolsShortcutsEnabled, studioAutoOpen, studioEnabled } from "./studio/studio-gate.mjs";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -22,6 +24,34 @@ let bundledArtCache = new Map();
 let selectedMonitor = "primary";
 let desktopPrefsPath = null;
 let canonicalHome = null;
+let studio = null;
+
+// Developer tooling gate. Packaged production builds stay off unless the
+// developer explicitly sets POCKET_BUDDY_STUDIO=1.
+function studioContext() {
+  return { packaged: app.isPackaged, env: process.env };
+}
+
+/**
+ * F12 and Ctrl/Cmd+Shift+I open Chromium DevTools in development only, so
+ * production keyboard behavior is unchanged.
+ */
+const devToolsBoundWindows = new WeakSet();
+
+function installDevToolsShortcuts(window) {
+  if (!devToolsShortcutsEnabled(studioContext())) return;
+  if (!window || window.isDestroyed() || devToolsBoundWindows.has(window)) return;
+  devToolsBoundWindows.add(window);
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const key = String(input.key || "").toLowerCase();
+    const combo = (input.control || input.meta) && input.shift && key === "i";
+    if (key !== "f12" && !combo) return;
+    event.preventDefault();
+    const contents = window.webContents;
+    contents.isDevToolsOpened() ? contents.closeDevTools() : contents.openDevTools({ mode: "detach" });
+  });
+}
 
 if (process.platform === "win32") {
   app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
@@ -143,6 +173,12 @@ function createOverlayWindow() {
   });
 
   applyDesktopWindowContract(window);
+  installDevToolsShortcuts(window);
+  // Re-attach the Studio agent after every load so watch-mode reloads keep
+  // their inspector. No-op when Studio is disabled.
+  window.webContents.on("did-finish-load", () => {
+    void studio?.attachTo(window.webContents).catch(() => {});
+  });
   window.loadFile(join(__dirname, "index.html"));
   window.once("ready-to-show", () => {
     applySelectedMonitorBounds();
@@ -199,6 +235,10 @@ function refreshTrayMenu() {
     { label: "Care", click: () => sendCommand("care") },
     { label: "Talk", click: () => sendCommand("talk") },
     { label: "Monitor", submenu: monitorTrayItems() },
+    ...(studio?.isEnabled() ? [
+      { type: "separator" },
+      { label: STUDIO_TRAY_LABEL, click: () => studio.open() },
+    ] : []),
     { type: "separator" },
     { label: "Quit Pocket Buddy", click: () => { quitting = true; app.quit(); } },
   ]));
@@ -381,14 +421,36 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin") app.dock?.hide();
 
   await loadDesktopPreferences();
+
+  studio = createStudioManager({
+    enabled: studioEnabled(studioContext()),
+    resolveTarget: (surface) => {
+      if (surface === "desktop") return overlayWindow && !overlayWindow.isDestroyed() ? overlayWindow.webContents : null;
+      if (surface === "home") return canonicalHome?.webContents() ?? null;
+      return null;
+    },
+    // Home is opened by the renderer so it carries the verified art hashes and
+    // the single-presence handshake. Studio just asks for the same command the
+    // tray uses instead of opening a second Home of its own.
+    onRequestHome: async () => sendCommand("home"),
+  });
+
   canonicalHome = createCanonicalHomeManager({
     getWorkArea: selectedWorkArea,
     getArtEntries: discoverBundledArt,
     readArtBytes: readBundledArt,
     onClosed: () => overlayWindow?.webContents.send("pocket-buddy:home-closed"),
+    isStudioEnabled: () => Boolean(studio?.isEnabled()),
+    onReady: (contents) => {
+      const window = contents ? BrowserWindow.fromWebContents(contents) : null;
+      if (window) installDevToolsShortcuts(window);
+      void studio?.attachTo(contents).catch(() => {});
+    },
   });
+
   overlayWindow = createOverlayWindow();
   createTray();
+  if (studioAutoOpen(studioContext())) studio.open();
 
   screen.on("display-added", scheduleDisplayRefresh);
   screen.on("display-removed", scheduleDisplayRefresh);
@@ -407,7 +469,7 @@ app.whenReady().then(async () => {
   app.quit();
 });
 
-app.on("before-quit", () => { quitting = true; void canonicalHome?.dispose(); });
+app.on("before-quit", () => { quitting = true; studio?.close(); void canonicalHome?.dispose(); });
 app.on("window-all-closed", (event) => {
   event?.preventDefault?.();
 });
