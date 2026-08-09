@@ -25,9 +25,7 @@
 
   function worldPoint(position, grid) {
     const room = roomFor(grid);
-    if (window.TinyHouseGridCore?.cellCenter) {
-      return window.TinyHouseGridCore.cellCenter(position.column, position.row, room);
-    }
+    if (window.TinyHouseGridCore?.cellCenter) return window.TinyHouseGridCore.cellCenter(position.column, position.row, room);
     return {
       x: room.originX + (position.column - position.row) * room.tileStepX,
       y: room.originY + (position.column + position.row) * room.tileStepY + room.tileStepY,
@@ -71,21 +69,25 @@
       const fromCell = cellFor(result);
       if (!floorExists(grid, fromCell)) return result;
 
-      const candidate = { ...result, [axis]: result[axis] + step };
-      const toCell = cellFor(candidate);
       const otherAxis = axis === "column" ? "row" : "column";
+      const candidate = { ...result, [axis]: result[axis] + step };
+      const low = fromCell[axis] - 0.5 + radius;
+      const high = fromCell[axis] + 0.5 - radius;
+      const boundary = direction > 0 ? high : low;
+      const reachesBoundary = direction > 0 ? candidate[axis] > boundary : candidate[axis] < boundary;
 
-      if (toCell[otherAxis] !== fromCell[otherAxis]) return result;
-      if (toCell[axis] === fromCell[axis]) {
-        const low = fromCell[axis] - 0.5 + radius;
-        const high = fromCell[axis] + 0.5 - radius;
-        candidate[axis] = clamp(candidate[axis], low, high);
-        result[axis] = candidate[axis];
-        remaining -= Math.abs(step);
-        continue;
+      if (reachesBoundary) {
+        const neighbor = { ...fromCell, [axis]: fromCell[axis] + direction };
+        if (!crossAllowed(grid, fromCell, neighbor)) {
+          result[axis] = boundary;
+          return result;
+        }
       }
 
-      if (Math.abs(toCell[axis] - fromCell[axis]) !== 1 || !crossAllowed(grid, fromCell, toCell)) {
+      const toCell = cellFor(candidate);
+      if (toCell[otherAxis] !== fromCell[otherAxis]) return result;
+      if (Math.abs(toCell[axis] - fromCell[axis]) > 1) return result;
+      if (toCell[axis] !== fromCell[axis] && !crossAllowed(grid, fromCell, toCell)) {
         result[axis] = boundaryFor(fromCell, axis, direction, radius);
         return result;
       }
@@ -101,19 +103,12 @@
     const safeRadius = clamp(Number(radius) || DEFAULT_RADIUS, 0, 0.22);
     const start = { column: Number(position?.column) || 0, row: Number(position?.row) || 0 };
     const columnFirst = Math.abs(deltaColumn) >= Math.abs(deltaRow);
-
     const run = (firstAxis, firstDelta, secondAxis, secondDelta) => {
       const first = moveAxis(grid, start, firstAxis, firstDelta, safeRadius);
       return moveAxis(grid, first, secondAxis, secondDelta, safeRadius);
     };
-
-    const primary = columnFirst
-      ? run("column", deltaColumn, "row", deltaRow)
-      : run("row", deltaRow, "column", deltaColumn);
-    const alternate = columnFirst
-      ? run("row", deltaRow, "column", deltaColumn)
-      : run("column", deltaColumn, "row", deltaRow);
-
+    const primary = columnFirst ? run("column", deltaColumn, "row", deltaRow) : run("row", deltaRow, "column", deltaColumn);
+    const alternate = columnFirst ? run("row", deltaRow, "column", deltaColumn) : run("column", deltaColumn, "row", deltaRow);
     const desired = { column: start.column + deltaColumn, row: start.row + deltaRow };
     const error = (candidate) => Math.hypot(candidate.column - desired.column, candidate.row - desired.row);
     return error(alternate) + EPSILON < error(primary) ? alternate : primary;
@@ -125,7 +120,6 @@
       const point = worldPoint(position, grid);
       return { position: { ...position }, dx: 0, dy: 0, moved: false, point };
     }
-
     const dt = clamp(Number(dtSeconds) || 0, 0, 0.05);
     const speed = Math.max(0, Number(speedPx) || 0);
     const dx = inputX / magnitude * speed * dt;
@@ -136,13 +130,7 @@
     const after = worldPoint(next, grid);
     const movedDx = after.x - before.x;
     const movedDy = after.y - before.y;
-    return {
-      position: next,
-      dx: movedDx,
-      dy: movedDy,
-      moved: Math.hypot(movedDx, movedDy) > 0.05,
-      point: after,
-    };
+    return { position: next, dx: movedDx, dy: movedDy, moved: Math.hypot(movedDx, movedDy) > 0.05, point: after };
   }
 
   function moveToward(grid, position, target, dtSeconds, speedPx = 105, stopPx = 5, radius = DEFAULT_RADIUS) {
@@ -151,9 +139,7 @@
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const distance = Math.hypot(dx, dy);
-    if (distance <= Math.max(0, stopPx)) {
-      return { position: { ...position }, dx: 0, dy: 0, moved: false, point: from, reached: true, distance };
-    }
+    if (distance <= Math.max(0, stopPx)) return { position: { ...position }, dx: 0, dy: 0, moved: false, point: from, reached: true, distance };
     const result = moveScreen(grid, position, dx, dy, dtSeconds, speedPx, radius);
     return { ...result, reached: false, distance };
   }
@@ -165,10 +151,7 @@
     const margin = clamp(Number(inset) || 0.18, 0.05, 0.4);
     const span = 0.5 - margin;
     const jitter = () => (clamp(Number(rng()) || 0.5, 0, 1) * 2 - 1) * span;
-    return {
-      column: floor.column + jitter(),
-      row: floor.row + jitter(),
-    };
+    return { column: floor.column + jitter(), row: floor.row + jitter() };
   }
 
   function distancePx(grid, a, b) {
@@ -177,15 +160,5 @@
     return Math.hypot(pb.x - pa.x, pb.y - pa.y);
   }
 
-  window.PocketBuddyActorMotion = Object.freeze({
-    DEFAULT_RADIUS,
-    cellFor,
-    worldPoint,
-    screenDeltaToGrid,
-    moveGrid,
-    moveScreen,
-    moveToward,
-    randomFloorPoint,
-    distancePx,
-  });
+  window.PocketBuddyActorMotion = Object.freeze({ DEFAULT_RADIUS, cellFor, worldPoint, screenDeltaToGrid, moveGrid, moveScreen, moveToward, randomFloorPoint, distancePx });
 })();
