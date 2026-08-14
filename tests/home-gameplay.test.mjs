@@ -195,3 +195,23 @@ test("autonomy is needs-driven and falls back to wandering", () => {
   assert.match(index, /pathfinding-core\.js/);
   assert.match(index, /affordance-core\.js/);
 });
+
+test("needs are persisted and restored defensively", () => {
+  // NOTE: this verifies the save/restore path only. It does NOT yet survive a
+  // relaunch, because canonical-home serves Home from http://127.0.0.1:<random
+  // port> and localStorage is origin-scoped, so every launch starts with empty
+  // storage. Verified by planting values and relaunching: they did not come
+  // back. House structure, furniture and Cozy state have the same problem and
+  // are silently lost on restart. Fixing that needs a stable Home origin.
+  const actors = read("desktop/pocket-buddy-home-actors.js");
+
+  assert.match(actors, /NEEDS_KEY = "pocket-buddy\.home\.needs\.v1"/);
+  assert.match(actors, /needs: loadNeeds\(id, \{/, "actors must restore, not always start fresh");
+  assert.match(actors, /saveNeeds\(now\)/, "the loop must persist them");
+  // Throttled, so the game loop is not writing storage every frame.
+  assert.match(actors, /if \(now - lastNeedsSaveAt < NEEDS_SAVE_MS\) return;/);
+  // A blocked or full store must never break play.
+  assert.match(actors, /catch \{ \/\* a full or blocked store must never break the game loop \*\/ \}/);
+  // Restored values are clamped, so hand-edited storage cannot corrupt the sim.
+  assert.match(actors, /restored\[name\] = clamp\(value, 0, 1\)/);
+});

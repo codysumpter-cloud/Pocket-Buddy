@@ -301,7 +301,7 @@
       // normal play, where idle/walk is chosen from actual movement.
       animationOverride: "",
       // Needs-driven life: what this actor wants, and what it is doing about it.
-      needs: { energy: 0.85, hunger: 0.8, hygiene: 0.85, fun: 0.75, social: 0.8 },
+      needs: loadNeeds(id, { energy: 0.85, hunger: 0.8, hygiene: 0.85, fun: 0.75, social: 0.8 }),
       plan: null,
       busyUntil: 0,
       activity: "",
@@ -322,9 +322,76 @@
     if (result.moved) actor.direction = directionFromWorldDelta(result.dx, result.dy, actor.direction);
   }
 
+  const INTERACT_RANGE = 1.4;
+
+  /** Nearest thing the player can act on: the Buddy, or useful furniture. */
+  function nearestInteractable() {
+    if (!human) return null;
+    const options = [];
+    if (buddy) {
+      options.push({
+        kind: "pet",
+        label: `Pet ${config.buddyName || "Buddy"}`,
+        distance: Math.hypot(buddy.cell.column - human.cell.column, buddy.cell.row - human.cell.row),
+      });
+    }
+    for (const candidate of furnitureCandidates(human)) {
+      options.push({
+        kind: "use",
+        label: `${candidate.affordance.action} · ${candidate.label}`,
+        affordance: candidate.affordance,
+        distance: Math.hypot(candidate.cell.column - human.cell.column, candidate.cell.row - human.cell.row),
+      });
+    }
+    const inRange = options.filter((option) => option.distance <= INTERACT_RANGE);
+    inRange.sort((a, b) => a.distance - b.distance);
+    return inRange[0] || null;
+  }
+
+  function showPrompt(text) {
+    let prompt = document.querySelector("#pb-home-interact-prompt");
+    if (!text) { prompt?.remove(); return; }
+    if (!prompt) {
+      prompt = document.createElement("div");
+      prompt.id = "pb-home-interact-prompt";
+      document.querySelector("#game-shell")?.append(prompt);
+    }
+    if (prompt.textContent !== text) prompt.textContent = text;
+  }
+
+  /** The player's interact verb. Without this there was nothing to press. */
+  function playerInteract() {
+    const target = nearestInteractable();
+    if (!human || !target) return;
+    if (target.kind === "pet") {
+      void bridge?.care?.("pet");
+      heartAt(buddy);
+      human.needs = window.PocketBuddyAffordances.satisfy(human.needs, { need: "social", gain: 0.35, seconds: 1 }, 1);
+      if (buddy) buddy.needs = window.PocketBuddyAffordances.satisfy(buddy.needs, { need: "social", gain: 0.5, seconds: 1 }, 1);
+      return;
+    }
+    human.plan = { affordance: target.affordance, path: [], label: target.label };
+    human.busyUntil = performance.now() + target.affordance.seconds * 1000;
+    human.activity = target.label;
+  }
+
   function maybeMoveHuman(dt) {
     if (!human) return;
     if (mode !== "play") { human.moving = false; return; }
+
+    // Mid-interaction the player stands still and takes the benefit; any
+    // movement key cancels it.
+    const now = performance.now();
+    if (human.busyUntil > now) {
+      const vector = desiredHumanVector();
+      if (vector.x || vector.y) { human.busyUntil = 0; human.plan = null; human.activity = ""; }
+      else {
+        human.moving = false;
+        human.needs = window.PocketBuddyAffordances.satisfy(human.needs, human.plan?.affordance, dt);
+        return;
+      }
+    }
+    human.needs = window.PocketBuddyAffordances.decay(human.needs, dt);
     const vector = desiredHumanVector();
     if (!vector.x && !vector.y) { human.moving = false; return; }
     applyMotion(human, window.PocketBuddyActorMotion.moveScreen(window.TinyHouseStructure.grid, human.cell, vector.x, vector.y, dt, HUMAN_SPEED_PX));
@@ -341,6 +408,44 @@
   }
 
   // ---------------------------------------------------------- needs-driven life
+
+  const NEEDS_KEY = "pocket-buddy.home.needs.v1";
+  const NEEDS_SAVE_MS = 4000;
+  let lastNeedsSaveAt = 0;
+
+  /**
+   * Restore needs from the previous session.
+   *
+   * Currently effective within a session only: Home is served from
+   * http://127.0.0.1:<random port>, so each launch is a different origin and
+   * localStorage starts empty. House saves and Cozy state share this flaw.
+   * This becomes real persistence once Home has a stable origin.
+   */
+  function loadNeeds(id, fallback) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(NEEDS_KEY) || "{}");
+      const saved = stored?.[id];
+      if (!saved || typeof saved !== "object") return fallback;
+      const restored = { ...fallback };
+      for (const name of window.PocketBuddyAffordances?.NEEDS ?? Object.keys(fallback)) {
+        const value = Number(saved[name]);
+        if (Number.isFinite(value)) restored[name] = clamp(value, 0, 1);
+      }
+      return restored;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function saveNeeds(now) {
+    if (now - lastNeedsSaveAt < NEEDS_SAVE_MS) return;
+    lastNeedsSaveAt = now;
+    try {
+      const payload = {};
+      for (const actor of [human, buddy]) if (actor?.id) payload[actor.id] = actor.needs;
+      localStorage.setItem(NEEDS_KEY, JSON.stringify(payload));
+    } catch { /* a full or blocked store must never break the game loop */ }
+  }
 
   /** Placed furniture that offers something, with its walkable cell. */
   function furnitureCandidates(actor) {
@@ -639,6 +744,11 @@
         if (mode === "play") event.preventDefault();
       }
     }, true);
+    window.addEventListener("keydown", (event) => {
+      if (typingTarget(event.target) || event.key.toLowerCase() !== "e") return;
+      event.preventDefault();
+      playerInteract();
+    }, true);
     window.addEventListener("keyup", (event) => keys.delete(event.key.toLowerCase()), true);
     window.addEventListener("blur", () => keys.clear());
   }
@@ -686,6 +796,11 @@
     maybeMoveIdleHuman(now, dt);
     renderActor(human, now);
     renderActor(buddy, now);
+    if (mode === "play" && human) {
+      const target = human.busyUntil > now ? null : nearestInteractable();
+      showPrompt(target ? `E · ${target.label}` : "");
+    } else showPrompt("");
+    saveNeeds(now);
     requestAnimationFrame(loop);
   }
 

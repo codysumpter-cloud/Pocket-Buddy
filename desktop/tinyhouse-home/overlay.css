@@ -9,6 +9,9 @@
   transform: translateX(-50%);
   z-index: 500001;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 96vw;
   gap: 5px;
   padding: 6px;
   pointer-events: auto;
@@ -82,3 +85,51 @@
 @media (prefers-reduced-motion: reduce) {
   #pb-home-launcher button { transition: none; }
 }
+
+/* One pop-out at a time, always in the same place above the launcher, so
+   panels can never stack on top of each other and bury one another. */
+[data-pb-home-mode="desktop"] #catalog,
+[data-pb-home-mode="desktop"] #structure-tools,
+[data-pb-home-mode="desktop"] #top-hud,
+[data-pb-home-mode="desktop"] #camera-tools,
+[data-pb-home-mode="desktop"] #selection-tools {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: 66px;
+  transform: translateX(-50%);
+  width: min(440px, 92vw);
+  max-height: min(60vh, 560px);
+  overflow: auto;
+  z-index: 500000;
+}
+
+/* The structure panel ships with a collapsed transform that would fight the
+   centring above. */
+[data-pb-home-mode="desktop"] #structure-tools.collapsed {
+  transform: translateX(-50%);
+  opacity: 1;
+}
+
+#pb-home-interact-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 116px;
+  transform: translateX(-50%);
+  z-index: 500002;
+  padding: 5px 9px;
+  pointer-events: none;
+  background: #e9d6a5;
+  border: 3px solid #45343a;
+  box-shadow: 3px 4px 0 rgba(17, 15, 19, .72);
+  font: 900 10px "Courier New", monospace;
+  color: #342b2f;
+  white-space: nowrap;
+}
+
+/* One bar only: the life controls are folded into the launcher. */
+[data-pb-home-mode="desktop"] #pb-home-life-controls { display: none !important; }
+
+/* Sit clear of a wrapped launcher rather than overlapping it. */
+#pb-home-interact-prompt { bottom: auto; top: 14px; }

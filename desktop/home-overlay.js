@@ -65,10 +65,24 @@
     return Boolean(panel) && !hidden.has(entry.id);
   }
 
+  /**
+   * Pop-outs are mutually exclusive. They were previously shown at their
+   * original docked coordinates, so opening two stacked them on top of each
+   * other and left the pair unusable.
+   */
   function togglePanel(entry, button) {
     if (!panelFor(entry)) return;
-    isOpen(entry) ? hidePanel(entry) : showPanel(entry);
-    button.dataset.open = isOpen(entry) ? "true" : "false";
+    const wasOpen = isOpen(entry);
+    for (const other of POPOUTS) if (other.id !== entry.id) hidePanel(other);
+    wasOpen ? hidePanel(entry) : showPanel(entry);
+    syncLauncherState();
+  }
+
+  function syncLauncherState() {
+    for (const button of document.querySelectorAll("#pb-home-launcher button[data-panel]")) {
+      const entry = POPOUTS.find((item) => item.id === button.dataset.panel);
+      button.dataset.open = entry && isOpen(entry) ? "true" : "false";
+    }
   }
 
   function collapseAll() {
@@ -102,6 +116,7 @@
     for (const entry of POPOUTS) {
       const button = make(entry.label, entry.title, (self) => togglePanel(entry, self));
       button.dataset.open = "false";
+      button.dataset.panel = entry.id;
     }
 
     // Size is the base scale of the house; zoom moves the camera relative to
@@ -275,8 +290,36 @@
     }
   }
 
+  /**
+   * The life controls ship as their own absolutely-positioned bar. On the
+   * desktop overlay that landed on top of the launcher and ran off the right
+   * edge of the screen, so fold its buttons into the single launcher bar.
+   */
+  function absorbLifeControls(attempt = 0) {
+    const bar = $("#pb-home-launcher");
+    const controls = $("#pb-home-life-controls");
+    if (!bar) return;
+    if (!controls) {
+      if (attempt < 40) setTimeout(() => absorbLifeControls(attempt + 1), 250);
+      return;
+    }
+    if (controls.dataset.pbAbsorbed === "true") return;
+    controls.dataset.pbAbsorbed = "true";
+    bar.append(...controls.querySelectorAll("button"));
+    controls.remove();
+  }
+
   function boot() {
     buildLauncher();
+    absorbLifeControls();
+    window.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (!POPOUTS.some(isOpen)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      collapseAll();
+      syncLauncherState();
+    }, true);
     if (overlay) collapseAll();
     installClickThrough();
     frameHouseWhenReady();

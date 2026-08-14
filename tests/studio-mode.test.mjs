@@ -481,3 +481,13 @@ test("camera separates house size from zoom and can reach the house", () => {
   assert.match(actors, /window\.PocketBuddyHomeView = Object\.freeze\(/);
   assert.match(overlayJs, /PocketBuddyHomeView\?\.playerPoint\?\.\(\)/);
 });
+
+test("the tray menu opens on a normal click", () => {
+  const main = read("desktop/main.mjs");
+  // Quit used to be reachable only by right-clicking the tray, because the
+  // left-click handler just toggled the overlay.
+  assert.match(main, /tray\.on\("click", \(\) => tray\.popUpContextMenu\(\)\)/);
+  assert.doesNotMatch(main, /tray\.on\("click", \(\) => \{\s*if \(!overlayWindow\) return;/);
+  assert.match(main, /icon\.resize\(\{ width: 18, height: 18 \}\)/);
+  assert.match(main, /label: "Quit Pocket Buddy"/);
+});
