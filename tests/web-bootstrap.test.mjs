@@ -23,7 +23,7 @@ test("Prismtek layout is bridged into Pocket Bird's original image perch scanner
   assert.match(source, /\.hero-card/);
   assert.match(source, /\.panel/);
   assert.match(source, /\.site-footer/);
-  assert.match(source, /data\.pocketBuddyPerchMarker = "1"/);
+  assert.match(source, /marker\.dataset\.pocketBuddyPerchMarker = "1"/);
   assert.match(source, /TRANSPARENT_PIXEL/);
 });
 
