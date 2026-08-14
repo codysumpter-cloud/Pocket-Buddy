@@ -45,7 +45,7 @@
   ];
 
   const state = {
-    version: "2026.08.14.1",
+    version: "2026.08.14.2",
     status: "loading",
     runtimeUrl,
     error: null,
@@ -143,8 +143,10 @@
     if (rect.bottom > window.innerHeight - margin) top -= rect.bottom - (window.innerHeight - margin);
     if (rect.top < margin) top += margin - rect.top;
 
-    element.style.left = `${Math.round(Math.max(margin, left))}px`;
-    element.style.top = `${Math.round(Math.max(margin, top))}px`;
+    const nextLeft = `${Math.round(Math.max(margin, left))}px`;
+    const nextTop = `${Math.round(Math.max(margin, top))}px`;
+    if (element.style.left !== nextLeft) element.style.left = nextLeft;
+    if (element.style.top !== nextTop) element.style.top = nextTop;
   }
 
   function wireFieldGuide(shadowRoot) {
@@ -184,7 +186,7 @@
     wireFieldGuide(shadowRoot);
     if (rootObserver) return;
     rootObserver = new MutationObserver(() => wireFieldGuide(shadowRoot));
-    rootObserver.observe(shadowRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+    rootObserver.observe(shadowRoot, { childList: true, subtree: true });
 
     window.addEventListener("resize", () => wireFieldGuide(shadowRoot), { passive: true });
     document.addEventListener("keydown", (event) => {
@@ -321,7 +323,7 @@
   function spawnBoosterFeather() {
     featherTimer = 0;
     if (!isPrismtekHost || !featherSpriteUrl || !document.body) return;
-    if (document.hidden || !document.hasFocus()) {
+    if (document.hidden) {
       scheduleFeatherDrop(false, 45_000);
       return;
     }
