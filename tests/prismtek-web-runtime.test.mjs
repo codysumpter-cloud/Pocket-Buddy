@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const runtime = readFileSync(new URL("../src/platforms/web/prismtek-web-runtime.js", import.meta.url), "utf8");
 const entry = readFileSync(new URL("../src/platforms/web/web.js", import.meta.url), "utf8");
+const application = readFileSync(new URL("../src/application.js", import.meta.url), "utf8");
 
 test("Prismtek web menu preserves the original Field Guide and Wardrobe action nodes", () => {
   assert.match(runtime, /PRESERVED_MENU_LABELS = \["Field Guide", "Wardrobe", "Sticky Note"\]/);
@@ -15,10 +16,13 @@ test("Prismtek web menu preserves the original Field Guide and Wardrobe action n
 test("Prismtek website uses stable page-relative perch rails instead of fake image markers", () => {
   assert.match(runtime, /data-pocket-buddy-stable-perch/);
   assert.match(runtime, /position: "absolute"/);
+  assert.match(runtime, /opacity: "1"/);
+  assert.match(runtime, /background: "transparent"/);
   assert.match(runtime, /\.site-header/);
   assert.match(runtime, /\.panel/);
   assert.match(runtime, /\.site-footer/);
   assert.match(runtime, /img:not\(\[data-pocket-buddy-perch-marker\]\)/);
+  assert.match(application, /parseFloat\(style\.opacity\) < 0\.25/);
 });
 
 test("first website perch does not use application startup teleport", () => {
@@ -34,5 +38,3 @@ test("web runtime guards install before Buddy menu augmentation", () => {
   const buddyIndex = entry.indexOf("initializeBuddyLayer()");
   assert.ok(guardIndex >= 0 && appIndex > guardIndex && buddyIndex > appIndex);
 });
-
-// This test file also acts as the final user-authored verification trigger after deterministic dist regeneration.
