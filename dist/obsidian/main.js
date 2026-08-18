@@ -1746,6 +1746,158 @@ module.exports = class PocketBird extends Plugin {
 	const MENU_ID = "birb-menu";
 	const MENU_EXIT_ID = "birb-menu-exit";
 
+	const ICONS = {
+		default: [
+			[0, 0, 1, 1, 1, 0, 0],
+			[0, 1, 0, 0, 0, 1, 0],
+			[1, 0, 0, 1, 0, 0, 1],
+			[1, 0, 0, 1, 0, 0, 1],
+			[0, 1, 0, 0, 0, 1, 0],
+			[0, 0, 1, 1, 1, 0, 0],
+		],
+		back: [
+			[0, 0, 1, 0, 0, 0, 0],
+			[0, 1, 1, 0, 0, 0, 0],
+			[1, 1, 1, 1, 1, 1, 0],
+			[0, 1, 1, 0, 0, 0, 0],
+			[0, 0, 1, 0, 0, 0, 0],
+			[0, 0, 0, 0, 0, 0, 0],
+		],
+		home: [
+			[0, 0, 0, 1, 0, 0, 0],
+			[0, 0, 1, 1, 1, 0, 0],
+			[0, 1, 1, 1, 1, 1, 0],
+			[1, 1, 0, 0, 0, 1, 1],
+			[1, 1, 0, 1, 0, 1, 1],
+			[1, 1, 1, 1, 1, 1, 1],
+		],
+		buddy: [
+			[0, 1, 1, 1, 1, 1, 0],
+			[1, 0, 0, 0, 0, 0, 1],
+			[1, 0, 1, 0, 1, 0, 1],
+			[1, 0, 0, 0, 0, 0, 1],
+			[0, 1, 1, 1, 1, 1, 0],
+			[0, 0, 1, 0, 0, 0, 0],
+		],
+		chill: [
+			[0, 0, 1, 1, 1, 0, 0],
+			[0, 1, 1, 0, 0, 0, 0],
+			[1, 1, 0, 0, 0, 0, 0],
+			[1, 1, 0, 0, 0, 1, 0],
+			[0, 1, 1, 0, 1, 1, 0],
+			[0, 0, 1, 1, 1, 0, 0],
+		],
+		pets: [
+			[0, 1, 0, 0, 0, 1, 0],
+			[1, 1, 0, 1, 0, 1, 1],
+			[0, 0, 1, 1, 1, 0, 0],
+			[0, 1, 1, 1, 1, 1, 0],
+			[0, 1, 1, 1, 1, 1, 0],
+			[0, 0, 1, 1, 1, 0, 0],
+		],
+		heart: [
+			[0, 1, 1, 0, 1, 1, 0],
+			[1, 0, 0, 1, 0, 0, 1],
+			[1, 0, 0, 0, 0, 0, 1],
+			[0, 1, 0, 0, 0, 1, 0],
+			[0, 0, 1, 0, 1, 0, 0],
+			[0, 0, 0, 1, 0, 0, 0],
+		],
+		talk: [
+			[0, 1, 1, 1, 1, 1, 0],
+			[1, 0, 0, 0, 0, 0, 1],
+			[1, 0, 1, 0, 1, 0, 1],
+			[1, 0, 0, 0, 0, 0, 1],
+			[0, 1, 1, 1, 1, 1, 0],
+			[0, 1, 0, 0, 0, 0, 0],
+		],
+		edit: [
+			[0, 0, 0, 0, 1, 1, 0],
+			[0, 0, 0, 1, 1, 0, 0],
+			[0, 0, 1, 1, 0, 0, 0],
+			[0, 1, 1, 0, 0, 0, 0],
+			[1, 1, 0, 0, 0, 0, 0],
+			[1, 0, 0, 0, 0, 0, 0],
+		],
+		scale: [
+			[0, 0, 1, 0, 1, 0, 0],
+			[0, 0, 1, 1, 1, 0, 0],
+			[1, 1, 1, 1, 1, 1, 1],
+			[0, 0, 1, 1, 1, 0, 0],
+			[0, 0, 1, 0, 1, 0, 0],
+			[0, 0, 0, 0, 0, 0, 0],
+		],
+		sound: [
+			[0, 0, 1, 1, 0, 0, 0],
+			[0, 1, 1, 1, 0, 1, 0],
+			[1, 1, 1, 1, 0, 0, 1],
+			[1, 1, 1, 1, 0, 0, 1],
+			[0, 1, 1, 1, 0, 1, 0],
+			[0, 0, 1, 1, 0, 0, 0],
+		],
+		theme: [
+			[0, 0, 1, 1, 1, 0, 0],
+			[0, 1, 0, 1, 0, 1, 0],
+			[1, 0, 1, 1, 1, 0, 1],
+			[1, 0, 1, 1, 1, 0, 1],
+			[0, 1, 0, 1, 0, 1, 0],
+			[0, 0, 1, 1, 1, 0, 0],
+		],
+		info: [
+			[0, 0, 1, 1, 1, 0, 0],
+			[0, 1, 0, 0, 0, 1, 0],
+			[0, 0, 0, 1, 0, 0, 0],
+			[0, 0, 0, 1, 0, 0, 0],
+			[0, 0, 0, 1, 0, 0, 0],
+			[0, 1, 1, 1, 1, 1, 0],
+		],
+	};
+
+	function fallbackIconForLabel(label) {
+		const text = String(label || "").trim().toLowerCase();
+		if (text.includes("go back") || text === "back") return ICONS.back;
+		if (text.includes("home")) return ICONS.home;
+		if (text.includes("chill")) return ICONS.chill;
+		if (text.includes("my pets") || text.includes("pet library")) return ICONS.pets;
+		if (text === "buddy" || text.includes("status")) return ICONS.buddy;
+		if (text.includes("talk") || text.includes("chat")) return ICONS.talk;
+		if (text.includes("care") || text.includes("pet buddy")) return ICONS.heart;
+		if (text.includes("rename")) return ICONS.edit;
+		if (text.includes("scale")) return ICONS.scale;
+		if (text.includes("sound")) return ICONS.sound;
+		if (text.includes("theme")) return ICONS.theme;
+		if (text.includes("build") || text.includes("source")) return ICONS.info;
+		return ICONS.default;
+	}
+
+	function createIconCanvas(icon) {
+		const iconCanvas = document.createElement("canvas");
+		iconCanvas.width = 7;
+		iconCanvas.height = 6;
+		iconCanvas.classList.add("birb-menu-item-icon");
+		const ctx = iconCanvas.getContext("2d");
+		if (ctx) {
+			for (let row = 0; row < icon.length; row++) {
+				for (let col = 0; col < icon[row].length; col++) {
+					if (icon[row][col]) {
+						ctx.fillStyle = "black";
+						ctx.fillRect(col, row, 1, 1);
+					}
+				}
+			}
+		}
+		return iconCanvas;
+	}
+
+	function ensureMenuItemIcon(menuItem) {
+		if (!(menuItem instanceof HTMLElement) || menuItem.querySelector(":scope > .birb-menu-item-icon")) return;
+		menuItem.prepend(createIconCanvas(fallbackIconForLabel(menuItem.textContent)));
+	}
+
+	function ensureMenuIcons(content) {
+		content.querySelectorAll(":scope > .birb-menu-item").forEach(ensureMenuItemIcon);
+	}
+
 	class MenuItem {
 		/**
 		 * @param {string|(() => string)} text
@@ -1814,25 +1966,9 @@ module.exports = class PocketBird extends Plugin {
 		if (item instanceof Separator) {
 			return makeElement("birb-window-separator");
 		}
-		let menuItem = makeElement("birb-menu-item", typeof item.text === "function" ? item.text() : item.text);
-		if (item.icon) {
-			const iconCanvas = document.createElement("canvas");
-			iconCanvas.width = 7;
-			iconCanvas.height = 6;
-			iconCanvas.classList.add("birb-menu-item-icon");
-			const ctx = iconCanvas.getContext("2d");
-			if (ctx) {
-				for (let row = 0; row < item.icon.length; row++) {
-					for (let col = 0; col < item.icon[row].length; col++) {
-						if (item.icon[row][col]) {
-							ctx.fillStyle = "black";
-							ctx.fillRect(col, row, 1, 1);
-						}
-					}
-				}
-			}
-			menuItem.prepend(iconCanvas);
-		}
+		const label = typeof item.text === "function" ? item.text() : item.text;
+		let menuItem = makeElement("birb-menu-item", label);
+		menuItem.prepend(createIconCanvas(item.icon || fallbackIconForLabel(label)));
 		if (item instanceof SpinnerMenuItem) {
 			menuItem.classList.add("birb-menu-item-spinner");
 			const container = makeElement("birb-menu-item-spinner-container");
@@ -1863,6 +1999,23 @@ module.exports = class PocketBird extends Plugin {
 		return menuItem;
 	}
 
+	function appendMenuItems(content, menuItems, removeCallback) {
+		for (const item of menuItems) {
+			if (!(item instanceof ConditionalMenuItem) || item.condition()) {
+				content.appendChild(createMenuItem(item, removeCallback));
+			}
+		}
+		ensureMenuIcons(content);
+	}
+
+	function resetExtensionMenuState(menu) {
+		for (const key of Object.keys(menu.dataset)) {
+			if (key.startsWith("pocketBuddy")) {
+				delete menu.dataset[key];
+			}
+		}
+	}
+
 	/**
 	 * Add the menu to the page if it doesn't already exist
 	 * @param {MenuItem[]} menuItems
@@ -1887,15 +2040,16 @@ module.exports = class PocketBird extends Plugin {
 			});
 			titleDiv.classList.add("birb-window-title-clickable");
 		}
-		for (const item of menuItems) {
-			if (!(item instanceof ConditionalMenuItem) || item.condition()) {
-				content.appendChild(createMenuItem(item, removeCallback));
-			}
-		}
+		appendMenuItems(content, menuItems, removeCallback);
 		menu.appendChild(header);
 		menu.appendChild(content);
 		getShadowRoot().appendChild(menu);
 		makeDraggable(getShadowRoot().querySelector(".birb-window-header"));
+
+		// Pocket Buddy augments the original Pocket Bird menu after it is inserted.
+		// Keep icon slots stable even when an extension layer replaces or relabels rows.
+		const iconObserver = new MutationObserver(() => ensureMenuIcons(content));
+		iconObserver.observe(content, { childList: true, subtree: true, characterData: true });
 
 		let menuExit = makeElement("birb-window-exit", undefined, MENU_EXIT_ID);
 		onClick(menuExit, removeCallback);
@@ -1940,15 +2094,15 @@ module.exports = class PocketBird extends Plugin {
 			error("Birb: Content not found");
 			return;
 		}
-		while (content.firstChild) {
-			content.removeChild(content.firstChild);
-		}
+
+		// Menu extensions mark which view they have augmented. The original Settings
+		// implementation swaps children in place, so stale markers would otherwise
+		// make the extension think the rebuilt menu was already upgraded.
+		resetExtensionMenuState(menu);
+		content.replaceChildren();
 		const removeCallback = () => removeMenu();
-		for (const item of menuItems) {
-			if (!(item instanceof ConditionalMenuItem) || item.condition()) {
-				content.appendChild(createMenuItem(item, removeCallback));
-			}
-		}
+		appendMenuItems(content, menuItems, removeCallback);
+		menu.dispatchEvent(new CustomEvent("birb-menu-items-changed", { bubbles: true }));
 		updateLocationCallback(menu);
 	}
 
