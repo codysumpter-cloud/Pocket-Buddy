@@ -1,0 +1,36 @@
+name: Refresh Pocket Buddy web dist once
+
+on:
+  push:
+    branches:
+      - fix/web-menu-tools-and-animated-perches
+    paths:
+      - .github/workflows/refresh-web-dist.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/web-menu-tools-and-animated-perches
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Rebuild tracked deterministic targets
+        run: npm run build
+      - name: Commit generated web dist and remove this one-shot workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist/web/birb.embed.js dist/web/birb.js
+          git rm .github/workflows/refresh-web-dist.yml
+          git diff --cached --check
+          git commit -m "Refresh deterministic Pocket Buddy web dist"
+          git push origin HEAD:fix/web-menu-tools-and-animated-perches
