@@ -98,7 +98,10 @@ function refreshStablePerches(rails) {
         minHeight: "1px",
         pointerEvents: "none",
         userSelect: "none",
-        opacity: "0",
+        // The base scanner rejects opacity below .25. The rail has no visible
+        // pixels/content, so keep normal opacity while remaining visually empty.
+        opacity: "1",
+        background: "transparent",
         zIndex: "-1",
       });
       document.body.appendChild(rail);
