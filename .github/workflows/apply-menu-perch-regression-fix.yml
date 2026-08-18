@@ -173,3 +173,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Restore Pocket Buddy tools and animated perch arrivals"
           git push origin HEAD:fix/restore-guide-wardrobe-perch-flight
+
+# retrigger exact branch-only patch
