@@ -1,0 +1,38 @@
+name: Refresh menu dist
+
+on:
+  push:
+    branches:
+      - fix/web-menu-stability
+    paths:
+      - .github/workflows/refresh-menu-dist.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/web-menu-stability
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Rebuild tracked deterministic outputs
+        run: npm run build
+      - name: Commit generated outputs when changed
+        shell: bash
+        run: |
+          git add dist ':!dist/extension.zip'
+          if git diff --cached --quiet; then
+            echo "Tracked dist already matches source."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh deterministic Pocket Buddy dist"
+          git push origin HEAD:fix/web-menu-stability
