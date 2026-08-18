@@ -1,0 +1,38 @@
+name: Refresh contextual assist dist
+
+on:
+  push:
+    branches:
+      - feat/contextual-buddy-assist
+    paths:
+      - .github/workflows/refresh-assist-dist.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/contextual-buddy-assist
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Rebuild tracked deterministic outputs
+        run: npm run build
+      - name: Commit generated outputs when changed
+        shell: bash
+        run: |
+          git add dist ':!dist/extension.zip'
+          if git diff --cached --quiet; then
+            echo "Tracked dist already matches source."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh contextual Buddy assist dist"
+          git push origin HEAD:feat/contextual-buddy-assist
