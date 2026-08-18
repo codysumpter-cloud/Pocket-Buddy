@@ -34,3 +34,5 @@ test("web runtime guards install before Buddy menu augmentation", () => {
   const buddyIndex = entry.indexOf("initializeBuddyLayer()");
   assert.ok(guardIndex >= 0 && appIndex > guardIndex && buddyIndex > appIndex);
 });
+
+// This test file also acts as the final user-authored verification trigger after deterministic dist regeneration.
